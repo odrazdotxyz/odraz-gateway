@@ -1,0 +1,64 @@
+/* Odraz design tokens. Source of truth: tokens.json. Set data-theme="dark" on <html> for dark mode. */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+
+:root, [data-theme="light"] {
+  --brand-blue: #4A9CFF;
+  --brand-aqua: #4DDCFF;
+  --brand-purple: #6B4FD8;
+  --brand-deep: #1A044C;
+  --brand-deepest: #0F0133;
+  --surface-page: #F9FAFB;
+  --surface-raised: #FFFFFF;
+  --gradient-start: #FFFFFF;
+  --gradient-end: #D6F6FF;
+  --ink: #111827;
+  --ink-muted: #6B7280;
+  --ink-on-brand: #0F0133;
+  --link: #1D6FE0;
+  --focus-ring: #1D6FE0;
+  --border-control: #6B7280;
+  --border-subtle: #E5E7EB;
+  --shadow-card: 0 4px 16px rgba(15, 1, 51, 0.08);
+  --shadow-overlay: 0 12px 32px rgba(15, 1, 51, 0.16);
+}
+
+[data-theme="dark"] {
+  --surface-page: #0F0133;
+  --surface-raised: #1A044C;
+  --gradient-start: #1A044C;
+  --gradient-end: #0F0133;
+  --ink: #F9FAFB;
+  --ink-muted: #A7A3C9;
+  --link: #4A9CFF;
+  --focus-ring: #4DDCFF;
+  --border-control: #6B4FD8;
+  --border-subtle: #2E1A6B;
+  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+
+:root {
+  --font-sans: "Poppins", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+}
+
+.text-display { font: 600 48px/56px var(--font-sans); letter-spacing: -0.5px; }
+.text-h1 { font: 600 36px/44px var(--font-sans); }
+.text-h2 { font: 600 28px/36px var(--font-sans); }
+.text-h3 { font: 600 22px/30px var(--font-sans); }
+.text-body-lg { font: 400 18px/28px var(--font-sans); }
+.text-body { font: 400 16px/24px var(--font-sans); }
+.text-label { font: 600 14px/20px var(--font-sans); }
+.text-small { font: 400 14px/20px var(--font-sans); }
+.text-caption { font: 400 12px/16px var(--font-sans); }

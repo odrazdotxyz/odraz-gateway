@@ -1,0 +1,6 @@
+/bin/
+/.demo/
+*.test
+/screenshots/
+scripts/node_modules/
+scripts/package-lock.json
