@@ -157,3 +157,17 @@ func TestMeListsBackends(t *testing.T) {
 		t.Error("nextcloud must use the app-password method and the nextcloud adapter")
 	}
 }
+
+func TestUniqueName(t *testing.T) {
+	used := map[string]bool{}
+	var got []string
+	for _, n := range []string{"Photos", "photos", "a.txt", "A.txt", "Photos", ""} {
+		got = append(got, uniqueName(used, n))
+	}
+	want := []string{"Photos", "photos (2)", "a.txt", "A (2).txt", "Photos (3)", "item"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("name %d = %q, want %q (all: %v)", i, got[i], want[i], got)
+		}
+	}
+}

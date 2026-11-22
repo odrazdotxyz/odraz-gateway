@@ -94,6 +94,7 @@
   ];
   const state = { me: null, demo: false, oidc: true, backends: [], drives: [], driveErrors: {}, cat: 'personal', loc: null, entries: [], loading: false, lastTarget: null,
     mappings: [], problems: [], photos: { items: [], truncated: false }, showAllFiles: false, showHidden: false, hiddenCount: 0,
+    sel: new Map(), anchor: null, // the selected files and folders, by key; the last one clicked (for shift-click ranges)
     photoView: localStorage.getItem('photoView') === 'folders' ? 'folders' : 'gallery' };
   const catById = (id) => CATS.find((c) => c.id === id) || CATS[0];
   const catOfKind = (k) => (CATS.find((c) => c.kinds.includes(k)) || CATS[2]).id;
@@ -189,6 +190,27 @@
   sysDark.addEventListener('change', () => { applyTheme(); render(); });
   applyTheme();
 
+  // ---------- selection ----------
+  const selKey = (e) => e.acct + '|' + e.drive + '|' + e.path;
+  const isSel = (e) => state.sel.has(selKey(e));
+  const clearSel = () => { state.sel.clear(); state.anchor = null; };
+  // What is on screen and can be selected, in order (shift-click selects the range between two of them).
+  const photoItems = () => (!state.loc && state.photoView === 'gallery' ? (state.photos.items || [])
+    : state.entries.filter((e) => e.kind === 'dir' || state.showAllFiles || kindOf(e) !== 'other'));
+  const shownItems = () => (state.cat === 'photos' ? photoItems() : state.entries.filter((e) => !e.isSpace));
+  function toggleSel(e, ev) {
+    const list = shownItems(), k = selKey(e);
+    if (ev && ev.shiftKey && state.anchor) {
+      const a = list.findIndex((x) => selKey(x) === state.anchor), b = list.findIndex((x) => selKey(x) === k);
+      if (a >= 0 && b >= 0) { for (const x of list.slice(Math.min(a, b), Math.max(a, b) + 1)) state.sel.set(selKey(x), x); render(); return; }
+    }
+    if (state.sel.has(k)) state.sel.delete(k); else state.sel.set(k, e);
+    state.anchor = k; render();
+  }
+  function selectAll() { for (const x of shownItems()) state.sel.set(selKey(x), x); render(); }
+  const selectedList = () => [...state.sel.values()];
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && state.sel.size && !dlg.open) { clearSel(); render(); } });
+
   // ---------- views ----------
   function loginView() {
     const err = h('div', { class: 'err', role: 'alert' });
@@ -268,7 +290,8 @@
     const btn = (label, ic, fn, dis) => h('button', { class: 'iconbtn', title: label, 'aria-label': label + ' ' + e.name, onclick: fn, disabled: dis }, ic);
     const d = driveBy(e.acct, e.drive);
     const vendor = e.vendor || (d && d.vendor);
-    return h('tr', {},
+    return h('tr', { class: isSel(e) ? 'selected' : null },
+      h('td', { class: 'sel' }, e.isSpace ? '' : h('input', { type: 'checkbox', checked: isSel(e), 'aria-label': 'Select ' + e.name, onclick: (ev) => { ev.stopPropagation(); toggleSel(e, ev); } })),
       h('td', {}, h('button', { class: 'name', onclick: () => (e.isDir ? go({ acct: e.acct, drive: e.drive, path: e.path }) : preview(e)) },
         h('span', { class: 'ic', 'aria-hidden': 'true' }, iconFor(e), vendor ? h('span', { class: 'vb-corner' }, vbadge(vendor, 12)) : ''),
         h('span', { class: 't' }, e.name))),
@@ -305,13 +328,13 @@
     const fileInput = h('input', { type: 'file', multiple: true, hidden: true, onchange: () => { uploadFiles([...fileInput.files]); fileInput.value = ''; } });
     const inPhotos = state.cat === 'photos';
     const hiddenHint = state.hiddenCount ? h('span', { class: 'ro' }, state.hiddenCount + ' hidden ', h('button', { class: 'linkbtn', onclick: () => { state.showHidden = !state.showHidden; load(); } }, state.showHidden ? 'Hide again' : 'Show')) : '';
-    const toolbar = inPhotos
+    const normalBar = inPhotos
       ? h('div', { class: 'toolbar' },
           fileInput, state.mappings.length ? h('button', { class: 'btn primary', disabled: !canAdd(), onclick: () => fileInput.click() }, icon('upload'), 'Upload') : '',
           state.mappings.length ? h('button', { class: 'btn', disabled: !canAdd(), onclick: newFolder }, icon('folderPlus'), 'New folder') : '',
           state.mappings.length ? h('span', { class: 'seg', role: 'group', 'aria-label': 'Photos view' },
             ['gallery', 'folders'].map((v) => h('button', { class: 'btn', 'aria-pressed': String(!state.loc ? state.photoView === v : v === 'folders'), onclick: () => {
-              setPhotoView(v); state.loc = null; history.pushState(null, '', hashOf()); load(); } }, v === 'gallery' ? 'Gallery' : 'Folders'))) : '',
+              clearSel(); setPhotoView(v); state.loc = null; history.pushState(null, '', hashOf()); load(); } }, v === 'gallery' ? 'Gallery' : 'Folders'))) : '',
           h('button', { class: 'btn' + (state.mappings.length ? '' : ' primary'), onclick: () => (state.mappings.length ? manageFolders() : chooseFolder()) }, icon('folder'), state.mappings.length ? 'Photo folders' : 'Choose folder…'),
           h('button', { class: 'btn', onclick: () => load() }, icon('refresh'), 'Refresh'),
           state.mappings.length ? h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: state.showAllFiles, onchange: (ev) => { state.showAllFiles = ev.target.checked; load(); } }), 'Show all files') : '')
@@ -320,11 +343,12 @@
           h('button', { class: 'btn', disabled: !canAdd(), onclick: newFolder }, icon('folderPlus'), 'New folder'),
           h('button', { class: 'btn', onclick: () => load() }, icon('refresh'), 'Refresh'),
           addHint() ? h('span', { class: 'ro' }, addHint()) : '', hiddenHint);
+    const toolbar = state.sel.size ? selBar() : normalBar;
 
     const body = state.loading ? h('div', { class: 'empty' }, 'Loading…')
       : inPhotos ? photosView()
       : state.entries.length === 0 ? h('div', { class: 'empty' }, drivesOf(state.cat).length === 0 && !state.loc ? 'Nothing here yet: none of your connected accounts has this kind of space.' : 'This folder is empty.' + (canAdd() ? ' Drop files here to upload.' : ''))
-      : h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', { class: 'num' }, 'Size'), h('th', { class: 'mod' }, 'Modified'), h('th', {}, ''))),
+      : h('table', {}, h('thead', {}, h('tr', {}, h('th', { class: 'sel' }, selectAllBox()), h('th', {}, 'Name'), h('th', { class: 'num' }, 'Size'), h('th', { class: 'mod' }, 'Modified'), h('th', {}, ''))),
           h('tbody', {}, ...state.entries.map(row)));
 
     const main = h('main', {}, crumbs(), toolbar, body);
@@ -340,7 +364,10 @@
 
   function render() {
     const app = $('#app');
+    const scroll = (app.querySelector('main') || {}).scrollTop || 0;
     app.replaceChildren(state.me ? appView() : loginView());
+    const main = app.querySelector('main');
+    if (main && scroll) main.scrollTop = scroll;
     document.title = (state.me ? catById(state.cat).label + ' · ' : '') + 'odrive demo · Odraz SDK';
   }
 
@@ -349,18 +376,20 @@
   const hashOf = () => '#' + (state.loc ? qs({ ...(state.cat === 'photos' ? { cat: 'photos' } : {}), acct: state.loc.acct, drive: state.loc.drive, path: state.loc.path }) : qs({ cat: state.cat }));
   const setPhotoView = (v) => { state.photoView = v; localStorage.setItem('photoView', v); };
   function openCat(id) {
+    clearSel();
     if (id === 'photos' && state.loc) setPhotoView('folders'); // coming up from a folder: show the folders, not the gallery
     state.cat = id; state.loc = null; history.pushState(null, '', hashOf()); load();
   }
   const isPhotoRoot = (loc) => state.cat === 'photos' && state.mappings.some((m) => m.acct === loc.acct && m.drive === loc.drive && m.folder === (loc.path || '/'));
   function go(loc) {
+    clearSel();
     const d = driveBy(loc.acct, loc.drive);
     if (state.cat === 'photos') setPhotoView('folders');
     else if (d) state.cat = catOfKind(d.kind);
     state.loc = isPhotoRoot(loc) ? null : { acct: loc.acct, drive: loc.drive, path: loc.path || '/' };
     history.pushState(null, '', hashOf()); load();
   }
-  window.addEventListener('popstate', () => { readHash(); load(); });
+  window.addEventListener('popstate', () => { clearSel(); readHash(); load(); });
   function readHash() {
     const p = new URLSearchParams(location.hash.slice(1));
     const d = driveBy(p.get('acct'), p.get('drive'));
@@ -446,6 +475,86 @@
     state.loading = false; render();
   }
 
+  // ---------- selection bar and batch actions ----------
+  // The header checkbox of the table: all (or none) of what is shown; "mixed" when only some are selected.
+  function selectAllBox() {
+    const list = shownItems(), n = list.filter(isSel).length;
+    const box = h('input', { type: 'checkbox', checked: list.length > 0 && n === list.length, 'aria-label': 'Select all', onclick: (ev) => {
+      if (n === list.length) clearSel(); else for (const x of list) state.sel.set(selKey(x), x);
+      ev.stopPropagation(); render(); } });
+    box.indeterminate = n > 0 && n < list.length;
+    return box;
+  }
+
+  function selBar() {
+    const items = selectedList(), n = items.length, anyRO = items.some(isRO);
+    const one = n === 1 ? items[0] : null;
+    return h('div', { class: 'toolbar selbar' },
+      h('span', { class: 'selcount' }, n + ' selected'),
+      h('button', { class: 'btn', onclick: batchDownload }, icon('download'), one && !one.isDir ? 'Download' : 'Download .zip'),
+      one ? h('button', { class: 'btn', disabled: anyRO, onclick: () => rename(one) }, icon('pencil'), 'Rename') : '',
+      h('button', { class: 'btn', disabled: anyRO, onclick: () => batchMoveCopy('move') }, icon('move'), 'Move…'),
+      h('button', { class: 'btn', onclick: () => batchMoveCopy('copy') }, icon('copy'), 'Copy…'),
+      h('button', { class: 'btn danger', disabled: anyRO, onclick: batchDelete }, icon('trash'), 'Delete'),
+      shownItems().length > n ? h('button', { class: 'btn small', onclick: selectAll }, 'Select all') : '',
+      h('button', { class: 'btn small', onclick: () => { clearSel(); render(); } }, 'Clear'),
+      anyRO ? h('span', { class: 'ro' }, 'Some items are read-only: they can be copied or downloaded only') : '');
+  }
+
+  // One file downloads as itself; several files, or any folder, as one zip built by the gateway.
+  function batchDownload() {
+    const items = selectedList();
+    if (items.length === 1 && !items[0].isDir) { location.href = fileUrl(items[0]); return; }
+    const url = '/api/zip?' + items.map((e) => 'item=' + encodeURIComponent(selKey(e))).join('&');
+    if (url.length > 7500) { toast('That is too many items for one download: select fewer.', true); return; }
+    location.href = url;
+  }
+
+  // Runs one request per item and reports once: how many worked, how many were skipped (the name already
+  // exists there), and what failed. The selection is cleared and the view reloaded.
+  async function runBatch(items, verb, one) {
+    const r = { ok: 0, skipped: 0, failed: [] };
+    for (const e of items) {
+      try { await one(e); r.ok++; }
+      catch (x) { if (x.code === 'exists') r.skipped++; else r.failed.push('“' + e.name + '”: ' + x.message); }
+    }
+    clearSel();
+    const noun = (n) => n + (n === 1 ? ' item' : ' items');
+    if (r.ok || r.skipped) toast(verb + ' ' + noun(r.ok) + (r.skipped ? ' (' + r.skipped + ' skipped: the name already exists there)' : ''));
+    r.failed.slice(0, 3).forEach((m) => fail(new Error(m)));
+    if (r.failed.length > 3) fail(new Error('…and ' + (r.failed.length - 3) + ' more failed'));
+    load();
+  }
+
+  async function batchDelete() {
+    const items = selectedList(), dirs = items.some((e) => e.isDir);
+    if (!(await confirmBox('Delete ' + items.length + (items.length === 1 ? ' item?' : ' items?'),
+      items.length === 1 ? '“' + items[0].name + '”' + (dirs ? ' and everything in it' : '') + ' will be deleted.'
+        : 'These ' + items.length + ' items' + (dirs ? ' (folders with everything in them)' : '') + ' will be deleted.', 'Delete', true))) return;
+    await runBatch(items, 'Deleted', (e) => api('/api/entry?' + qs(at(e, { path: e.path, recursive: 1 })), { method: 'DELETE' }));
+  }
+
+  // Move or copy everything selected into one folder (of any server you can write to).
+  async function batchMoveCopy(kind) {
+    const items = selectedList(), verb = kind === 'move' ? 'Move' : 'Copy';
+    const drives = writableDrives();
+    if (!drives.length) { fail(new Error('There is nowhere to ' + verb.toLowerCase() + ' to.')); return; }
+    const dest = await folderDialog({
+      title: verb + ' ' + (items.length === 1 ? '“' + items[0].name + '”' : items.length + ' items') + ' to…', drives, start: { acct: items[0].acct, drive: items[0].drive },
+      allowRoot: true, cancel: 'Cancel', confirm: (dir, d) => verb + ' to ' + (dir === '/' ? 'the top of ' + d.name : dir) });
+    if (!dest) return;
+    const into = dest.folder;
+    const bad = items.find((e) => e.isDir && dest.drive.acct === e.acct && dest.drive.id === e.drive && (into === e.path || into.startsWith(e.path + '/')));
+    if (bad) { fail(new Error('You cannot ' + verb.toLowerCase() + ' “' + bad.name + '” into itself.')); return; }
+    const cross = items.some((e) => e.acct !== dest.drive.acct || e.drive !== dest.drive.id);
+    if (cross || items.length > 5) toast((kind === 'move' ? 'Moving ' : 'Copying ') + items.length + ' items…');
+    await runBatch(items, kind === 'move' ? 'Moved' : 'Copied', async (e) => {
+      const to = join(into, e.name), same = e.acct === dest.drive.acct && e.drive === dest.drive.id;
+      if (same && to === e.path) throw Object.assign(new Error('already there'), { code: 'exists' });
+      await api('/api/' + kind + '?' + qs(at(e, { from: e.path, to, ...(same ? {} : { toAcct: dest.drive.acct, toDrive: dest.drive.id }) })), { method: 'POST' });
+    });
+  }
+
   // ---------- Photos ----------
   const thumbUrl = (it, size = 256) => '/api/thumb?' + qs(at(it, { path: it.path, size }));
 
@@ -484,9 +593,10 @@
     const actions = h('span', { class: 'tact' },
       kind === 'dir' ? '' : h('a', { class: 'iconbtn', title: 'Download', 'aria-label': 'Download ' + it.name, href: fileUrl(it), onclick: (ev) => ev.stopPropagation() }, icon('download')),
       act('Rename', icon('pencil'), () => rename(it)), act('Move', icon('move'), () => moveOrCopy(it, 'move')), act('Delete', icon('trash'), () => remove(it)));
-    return h('div', { class: 'tile' + (kind === 'dir' ? ' dir' : '') },
-      h('button', { class: 'topen', title: it.name + (it.vendor ? ' · ' + vendorName(it.vendor) : ''), onclick: () => (kind === 'dir' ? go({ acct: it.acct, drive: it.drive, path: it.path }) : preview(it)) },
+    return h('div', { class: 'tile' + (kind === 'dir' ? ' dir' : '') + (isSel(it) ? ' selected' : '') },
+      h('button', { class: 'topen', title: it.name + (it.vendor ? ' · ' + vendorName(it.vendor) : ''), onclick: (ev) => { if (state.sel.size) toggleSel(it, ev); else if (kind === 'dir') go({ acct: it.acct, drive: it.drive, path: it.path }); else preview(it); } },
         frame, kind === 'video' ? h('span', { class: 'play' }, icon('play', 14)) : '', h('span', { class: 'tl' }, it.name)),
+      h('input', { type: 'checkbox', class: 'tsel', checked: isSel(it), 'aria-label': 'Select ' + it.name, onclick: (ev) => { ev.stopPropagation(); toggleSel(it, ev); } }),
       actions, it.vendor ? h('span', { class: 'vb-corner' }, vbadge(it.vendor, 14)) : '');
   }
 
@@ -499,39 +609,42 @@
         h('button', { class: 'btn primary', onclick: () => chooseFolder() }, icon('folder'), 'Choose folder…'), note);
     }
     const gallery = !state.loc && state.photoView === 'gallery';
-    const items = gallery ? (state.photos.items || []) : state.entries.filter((e) => e.kind === 'dir' || state.showAllFiles || kindOf(e) !== 'other');
+    const items = photoItems();
     if (!items.length) return h('div', { class: 'empty' }, gallery ? 'No pictures or videos in your photo folders yet.' + (state.showAllFiles ? '' : ' Turn on "Show all files" to see everything in them.')
       : 'Nothing here yet.' + (state.showAllFiles ? '' : ' Pictures and videos are shown; turn on "Show all files" to see the rest.') + (canAdd() ? ' Drop files here to upload.' : ''));
-    return h('div', {}, h('div', { class: 'grid' }, items.map(tile)),
+    return h('div', {}, h('div', { class: 'grid' + (state.sel.size ? ' selecting' : '') }, items.map(tile)),
       gallery && state.photos.truncated ? h('p', { class: 'meta' }, 'Showing the first ' + items.length + ' items.') : '');
   }
 
-  // Pick a folder in a drive: browse its folders, choose one. The choice is written to that drive's manifest.
-  function pickFolder(startDrive) {
-    const ds = state.drives.filter((d) => d.kind === 'personal' && !d.readOnly);
+  // Browse a drive's folders and pick one (or create one on the way). Used to choose the Photos folder and as the
+  // destination chooser for Move and Copy. Options: title, drives (the drives that may be chosen), start ({acct,
+  // drive}), allowRoot (the top of a drive is a valid choice), confirm(dir, drive) -> the button label, cancel
+  // (its label) and hideOption (offer "hide from Personal"). Resolves {drive, folder, hide} or null.
+  function folderDialog(o) {
+    const ds = o.drives;
     return openDialog((done) => {
-      let drive = ds.find((d) => startDrive && d.acct === startDrive.acct && d.id === startDrive.drive) || ds.find((d) => !mappingOf(d.acct, d.id)) || ds[0];
+      let drive = ds.find((d) => o.start && d.acct === o.start.acct && d.id === o.start.drive) || ds.find((d) => o.hideOption && !mappingOf(d.acct, d.id)) || ds[0];
       let dir = '/';
       const hide = h('input', { type: 'checkbox', checked: true });
       const list = h('div', { class: 'folders' });
       const bar = h('div', { class: 'crumbs pickcrumbs' });
-      const useBtn = h('button', { class: 'btn primary' }, 'Use this folder');
+      const useBtn = h('button', { class: 'btn primary' }, '');
       const sel = ds.length > 1 ? h('select', { 'aria-label': 'Server', onchange: () => { drive = ds[+sel.value]; dir = '/'; show(); } },
         ds.map((d, i) => h('option', { value: i, selected: d === drive }, driveLabel(d)))) : null;
       async function show() {
         list.replaceChildren(h('div', { class: 'empty' }, 'Loading…'));
         bar.replaceChildren(...[['/', drive.name], ...dir.split('/').filter(Boolean).map((seg, i, a) => ['/' + a.slice(0, i + 1).join('/'), seg])].flatMap(([p, label], i) => [
           i ? h('span', { class: 'sep' }, icon('chevron', 14)) : '', h('button', { type: 'button', onclick: () => { dir = p; show(); } }, label)]));
-        useBtn.disabled = dir === '/'; useBtn.textContent = dir === '/' ? 'Open or create a folder' : 'Use ' + dir;
+        useBtn.disabled = dir === '/' && !o.allowRoot; useBtn.textContent = o.confirm(dir, drive);
         try {
           const res = await api('/api/list?' + qs({ acct: drive.acct, drive: drive.id, path: dir }));
           const dirs = res.entries.filter((e) => e.isDir && !e.name.startsWith('.'));
-          if (!nameIn.value) nameIn.placeholder = dir === '/' && !dirs.some((e) => e.name === 'Photos') ? 'New folder name, e.g. Photos' : 'New folder name';
+          if (!nameIn.value) nameIn.placeholder = o.hideOption && dir === '/' && !dirs.some((e) => e.name === 'Photos') ? 'New folder name, e.g. Photos' : 'New folder name';
           list.replaceChildren(...(dirs.length ? dirs.map((e) => h('button', { type: 'button', class: 'frow', onclick: () => { dir = e.path; show(); } }, icon('folder', 16), e.name, icon('chevron', 14)))
             : [h('div', { class: 'empty' }, 'No folders here.')]));
         } catch (e) { list.replaceChildren(h('div', { class: 'empty' }, e.message)); }
       }
-      // Create a folder right here (no photos folder yet?) and go into it, ready to be used.
+      // Create a folder right here and go into it, ready to be used.
       const nameIn = h('input', { type: 'text', placeholder: 'New folder name', 'aria-label': 'New folder name', onkeydown: (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); create(); } } });
       const createBtn = h('button', { type: 'button', class: 'btn', onclick: () => create() }, icon('folderPlus'), 'Create');
       async function create() {
@@ -545,15 +658,19 @@
           await show();
         } catch (e) { fail(e); } finally { createBtn.disabled = false; }
       }
-      const form = h('form', { method: 'dialog', onsubmit: (ev) => { ev.preventDefault(); if (dir !== '/') { done({ drive, folder: dir, hide: hide.checked }); closeDialog(); } } },
-        h('h2', {}, 'Choose your photos folder'), sel ? h('label', {}, 'Server', sel) : '', bar, list,
+      const form = h('form', { method: 'dialog', onsubmit: (ev) => { ev.preventDefault(); if (dir !== '/' || o.allowRoot) { done({ drive, folder: dir, hide: hide.checked }); closeDialog(); } } },
+        h('h2', {}, o.title), sel ? h('label', {}, 'Server', sel) : '', bar, list,
         h('div', { class: 'newfolder' }, nameIn, createBtn),
-        h('label', { class: 'check' }, hide, 'Hide this folder from Personal (it stays reachable with "Show hidden")'),
-        h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn', onclick: () => closeDialog() }, 'Not now'), useBtn));
+        o.hideOption ? h('label', { class: 'check' }, hide, 'Hide this folder from Personal (it stays reachable with "Show hidden")') : '',
+        h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn', onclick: () => closeDialog() }, o.cancel || 'Cancel'), useBtn));
       show();
       return [form];
     }, true);
   }
+
+  const pickFolder = (startDrive) => folderDialog({
+    title: 'Choose your photos folder', drives: state.drives.filter((d) => d.kind === 'personal' && !d.readOnly), start: startDrive,
+    hideOption: true, cancel: 'Not now', confirm: (dir) => (dir === '/' ? 'Open or create a folder' : 'Use ' + dir) });
 
   async function chooseFolder(startDrive) {
     const ds = state.drives.filter((d) => d.kind === 'personal' && !d.readOnly);
@@ -743,7 +860,7 @@
 
   async function signOut() {
     try { await api('/auth/logout', { method: 'POST' }); } catch { /* already gone */ }
-    state.me = null; state.drives = []; state.loc = null; history.replaceState(null, '', '/'); render();
+    clearSel(); state.me = null; state.drives = []; state.loc = null; history.replaceState(null, '', '/'); render();
   }
 
   // ---------- start ----------

@@ -249,3 +249,19 @@ dialog .opt { margin-bottom: var(--space-2); }
 .newfolder { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
 .newfolder input { flex: 1; }
 .tile video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; background: #000; }
+
+/* selection */
+td.sel, th.sel { width: 36px; padding-right: 0; }
+td.sel input, th.sel input, .tsel { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; margin: 0; vertical-align: middle; }
+tr.selected td { background: var(--selected); }
+tr.selected:hover td { background: var(--selected); }
+.selbar { align-items: center; }
+.selbar .selcount { font-weight: 600; margin-right: var(--space-2); }
+.selbar .btn.danger { background: transparent; color: var(--danger); border-color: var(--danger); }
+.selbar .btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.tile .tsel { position: absolute; left: 8px; top: 8px; z-index: 3; opacity: 0; transition: opacity .12s; filter: drop-shadow(0 0 2px rgba(0, 0, 0, .6)); }
+.tile:hover .tsel, .tile:focus-within .tsel, .grid.selecting .tsel, .tile.selected .tsel { opacity: 1; }
+.tile.selected { outline: 3px solid var(--accent); outline-offset: -3px; }
+.tile.selected .tmedia { opacity: .85; }
+.tile .play { left: 32px; }
+@media (hover: none) { .tile .tsel { opacity: 1; } }

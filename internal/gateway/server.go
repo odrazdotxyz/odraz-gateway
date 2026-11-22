@@ -96,6 +96,7 @@ func New(cfg Config) *Server {
 	s.mux.HandleFunc("GET /api/list", s.authed(s.handleList))
 	s.mux.HandleFunc("GET /api/file", s.authed(s.handleDownload))
 	s.mux.HandleFunc("GET /api/thumb", s.authed(s.handleThumb))
+	s.mux.HandleFunc("GET /api/zip", s.authed(s.handleZip))
 	s.mux.HandleFunc("GET /api/photos", s.authed(s.handlePhotos))
 	s.mux.HandleFunc("GET /api/photos/config", s.authed(s.handlePhotosConfig))
 	s.mux.HandleFunc("PUT /api/photos/folder", s.csrf(s.authed(s.handlePhotosSet)))
