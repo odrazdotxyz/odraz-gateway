@@ -1,4 +1,4 @@
-// odrive demo UI: plain JavaScript, no build step. Talks to the gateway's JSON API.
+// Odraz demo UI: plain JavaScript, no build step. Talks to the gateway's JSON API.
 (() => {
   'use strict';
 
@@ -194,7 +194,7 @@
   const applyTheme = () => { document.documentElement.dataset.theme = isDark() ? 'dark' : 'light'; };
   const toggleTheme = () => { pref = isDark() ? 'light' : 'dark'; localStorage.setItem('theme', pref); applyTheme(); render(); };
   const themeBtn = () => h('button', { class: 'iconbtn theme', title: 'Switch between light and dark', 'aria-label': 'Switch between light and dark theme', onclick: toggleTheme }, icon(isDark() ? 'sun' : 'moon', 18));
-  // The login card carries the odrive logo (this is the odrive demo); the top bar carries the parent brand, Odraz.
+  // Both the login card and the top bar carry the Odraz logo; `brand` can name another lockup in /assets.
   const logo = (cls, brand = 'odrive') => h('img', { class: cls, alt: brand, src: '/assets/' + brand + '-lockup-' + (isDark() ? 'light' : 'dark') + '-text.svg' });
   sysDark.addEventListener('change', () => { applyTheme(); render(); });
   applyTheme();
@@ -224,21 +224,25 @@
   });
 
   // ---------- views ----------
+  // The front door of the Odraz demo: Odraz, and one button. The demo is pre-wired to the servers it was started
+  // with. The real flow will start from the URL of YOUR server and let the server say how to sign in (the SDK
+  // discovers it), so no identity provider is advertised here. Only when no demo is set up does a server's own
+  // login (OIDC) appear, as the fallback, so the gateway stays usable.
   function loginView() {
     const err = h('div', { class: 'err', role: 'alert' });
     const hasOidc = state.backends.some((b) => b.oidc);
-    const demo = state.demo ? h('button', { class: 'btn' + (hasOidc ? '' : ' primary'), onclick: async () => {
+    const demo = state.demo ? h('button', { class: 'btn primary', onclick: async () => {
       err.textContent = '';
       try { await api('/auth/demo', { method: 'POST' }); await boot(); }
       catch (x) { err.textContent = x.message; }
     } }, 'Try the demo') : '';
-    const names = state.backends.map((b) => vendorName(b.vendor)).join(' and ');
+    const fallback = !state.demo && hasOidc ? [h('a', { class: 'btn primary', href: '/auth/login' }, 'Sign in'),
+      h('p', { class: 'fine' }, 'Signs in through the server\'s identity provider (Pocket ID in the demo setup uses passkeys: run ', h('code', {}, 'make login-link'), ' once to register one).')] : [];
     return h('div', { class: 'login' }, h('div', { class: 'corner' }, themeBtn()), h('div', { class: 'card' },
-      logo('logo'), h('h1', {}, 'Sign in'),
-      h('p', {}, 'A demo of the Odraz Go SDK: one page for the files you keep on ' + (names || 'your servers') + ', through a small gateway.'),
-      hasOidc ? h('a', { class: 'btn primary', href: '/auth/login' }, 'Sign in with Pocket ID') : '',
-      hasOidc && demo ? h('div', { class: 'or' }, 'or') : '', demo, err,
-      hasOidc ? h('p', { class: 'fine' }, 'Pocket ID uses passkeys. First time? Run ', h('code', {}, 'make login-link'), ' and open the link once to register one.') : ''));
+      logo('logo', 'odraz'), h('h1', {}, 'Odraz demo'),
+      h('p', {}, 'Your files and photos from the servers you already use, in one place. Built on the Odraz SDK.'),
+      demo, ...fallback, err,
+      !state.demo && !hasOidc ? h('p', { class: 'fine' }, 'The demo is not set up on this gateway: start it with a demo token file (see the README).') : ''));
   }
 
   const catSummary = (c) => {
@@ -358,8 +362,8 @@
     // Disconnecting the last server is signing out: boot() finds nobody signed in and shows the login page.
     const action = b.connected
       ? h('button', { class: 'mi', role: 'menuitem', onclick: () => run(() => api('/auth/disconnect?' + qs({ backend: b.id }), { method: 'POST' })) }, icon('unplug', 16), state.backends.filter((x) => x.connected).length === 1 ? 'Disconnect and sign out' : 'Disconnect')
-      : b.oidc ? h('a', { class: 'mi', role: 'menuitem', href: '/auth/login?' + qs({ backend: b.id }) }, icon('plug', 16), 'Connect')
       : b.demo ? h('button', { class: 'mi', role: 'menuitem', onclick: () => run(() => api('/auth/demo?' + qs({ backend: b.id }), { method: 'POST' })) }, icon('plug', 16), 'Connect')
+      : b.oidc ? h('a', { class: 'mi', role: 'menuitem', href: '/auth/login?' + qs({ backend: b.id }) }, icon('plug', 16), 'Connect')
       : h('span', { class: 'mi off' }, 'Not available to connect here');
     return h('span', { class: 'acctmenu' },
       h('button', { class: 'acctbtn', title: vendorName(b.vendor) + (b.connected ? ' · ' + (b.user || 'connected') : ' · not connected'), 'aria-haspopup': 'menu', 'aria-expanded': String(open),
@@ -458,7 +462,7 @@
     app.replaceChildren(state.me ? appView() : loginView());
     const main = app.querySelector('main');
     if (main && scroll) main.scrollTop = scroll;
-    document.title = (state.me ? catById(state.cat).label + ' · ' : '') + 'odrive demo · Odraz SDK';
+    document.title = (state.me ? catById(state.cat).label + ' · ' : '') + 'Odraz demo';
   }
 
   // ---------- navigation ----------
