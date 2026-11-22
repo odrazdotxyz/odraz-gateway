@@ -1,5 +1,4 @@
 /* Odraz design tokens. Source of truth: tokens.json. Set data-theme="dark" on <html> for dark mode. */
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
 
 :root, [data-theme="light"] {
   --brand-blue: #4A9CFF;

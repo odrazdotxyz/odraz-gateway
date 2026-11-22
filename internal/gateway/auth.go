@@ -18,16 +18,37 @@ import (
 )
 
 func (s *Server) baseAccount() accounts.Account {
-	cfg := map[string]string{"url": s.cfg.OpenCloudURL}
+	cfg := map[string]string{"url": s.cfg.ServerURL}
 	if s.cfg.Insecure {
 		cfg[accounts.ConfigInsecure] = "true"
 	}
+	if s.nextcloud() {
+		return accounts.Account{ID: "demo", Label: "Nextcloud", Adapter: "nextcloud", Config: cfg}
+	}
 	return accounts.Account{ID: "demo", Label: "OpenCloud", Adapter: "opencloud", Config: cfg}
+}
+
+func (s *Server) nextcloud() bool { return s.cfg.Backend == "nextcloud" }
+
+// oidcLogin: browser sign-in through the identity provider. Only the OpenCloud adapter has it:
+// Nextcloud needs its user_oidc app for that, so the Nextcloud demo signs in with an app password.
+func (s *Server) oidcLogin() bool { return !s.nextcloud() }
+
+// authMethod is the SDK login method for username + app token / app password.
+func (s *Server) authMethod() string {
+	if s.nextcloud() {
+		return "app-password"
+	}
+	return "app-token"
 }
 
 // GET /auth/login: discover the identity provider through OpenCloud (WebFinger) and send the
 // browser to it. The SDK never opens a browser itself: the redirect is ours.
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if !s.oidcLogin() {
+		authError(w, errors.New("browser sign-in is not available for this backend; use the demo button or an app password"))
+		return
+	}
 	sess := s.newSession(w, r)
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
@@ -38,7 +59,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		authError(w, err)
 		return
 	}
-	pending, err := oidc.Begin(ctx, oidc.HTTPClient(h.Env), s.cfg.OpenCloudURL, oidc.Config{
+	pending, err := oidc.Begin(ctx, oidc.HTTPClient(h.Env), s.cfg.ServerURL, oidc.Config{
 		ClientID: s.cfg.ClientID, RedirectURI: s.cfg.PublicURL + "/auth/callback"})
 	if err != nil {
 		authError(w, fmt.Errorf("could not start the login: %w", err))
@@ -87,14 +108,31 @@ func (s *Server) handleAppToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "username and token are required")
 		return
 	}
+	s.signInAppToken(w, r, in.Username, in.Token)
+}
+
+// POST /auth/demo: one-click sign-in as the demo user, using the app token the operator gave the
+// gateway (-demo-token-file). Disabled unless configured, because it lets anyone who can reach the
+// gateway in. For local and throwaway demos only.
+func (s *Server) handleDemo(w http.ResponseWriter, r *http.Request) {
+	if !s.demoEnabled() {
+		writeErr(w, http.StatusNotFound, "demo login is not enabled")
+		return
+	}
+	s.signInAppToken(w, r, s.cfg.DemoUser, s.cfg.DemoToken)
+}
+
+func (s *Server) demoEnabled() bool { return s.cfg.DemoUser != "" && s.cfg.DemoToken != "" }
+
+func (s *Server) signInAppToken(w http.ResponseWriter, r *http.Request, username, token string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	sess := s.newSession(w, r)
-	values := map[string]string{"url": s.cfg.OpenCloudURL, "username": in.Username, "password": in.Token}
+	values := map[string]string{"url": s.cfg.ServerURL, "username": username, "password": token}
 	if s.cfg.Insecure {
 		values[accounts.ConfigInsecure] = "true"
 	}
-	acc, err := accounts.Configure(ctx, sess.store, s.baseAccount(), "app-token", values)
+	acc, err := accounts.Configure(ctx, sess.store, s.baseAccount(), s.authMethod(), values)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -106,7 +144,7 @@ func (s *Server) handleAppToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess.mu.Lock()
-	sess.acc, sess.method, sess.user = acc, "app-token", in.Username
+	sess.acc, sess.method, sess.user = acc, "app-token", username
 	sess.mu.Unlock()
 	if err := s.connect(ctx, sess); err != nil {
 		writeError(w, err)
@@ -142,7 +180,7 @@ func (s *Server) connect(ctx context.Context, sess *session) error {
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	sess := s.lookup(r)
 	if sess == nil || sess.client == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"authenticated": false})
+		writeJSON(w, http.StatusOK, map[string]any{"authenticated": false, "demo": s.demoEnabled(), "oidc": s.oidcLogin()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"authenticated": true, "method": sess.method, "user": sess.user})

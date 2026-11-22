@@ -19,6 +19,7 @@ import (
 	"github.com/odrazdotxyz/odraz-go-sdk/accounts/oidc"
 	"github.com/odrazdotxyz/odraz-go-sdk/files"
 
+	_ "github.com/odrazdotxyz/odraz-go-sdk/vendors/nextcloud" // registers the "nextcloud" adapter
 	_ "github.com/odrazdotxyz/odraz-go-sdk/vendors/opencloud" // registers the "opencloud" adapter
 )
 
@@ -27,10 +28,13 @@ var webFS embed.FS
 
 // Config configures the gateway.
 type Config struct {
-	PublicURL    string // where browsers reach the gateway, e.g. http://localhost:8080 (OIDC redirect base)
-	OpenCloudURL string // e.g. https://localhost:9200
-	ClientID     string // OIDC client registered in the identity provider for this gateway
-	Insecure     bool   // accept OpenCloud's self-signed certificate
+	PublicURL string // where browsers reach the gateway, e.g. http://localhost:8080 (OIDC redirect base)
+	Backend   string // "opencloud" (default) or "nextcloud"
+	ServerURL string // the backend, e.g. https://localhost:9200 (OpenCloud) or http://localhost:8082 (Nextcloud)
+	ClientID  string // OIDC client registered in the identity provider for this gateway
+	Insecure  bool   // accept OpenCloud's self-signed certificate
+	DemoUser  string // with DemoToken: enables one-click "Try the demo" sign-in (demo only)
+	DemoToken string
 }
 
 // Server is the gateway's http.Handler.
@@ -68,6 +72,7 @@ func New(cfg Config) *Server {
 	s.mux.HandleFunc("GET /auth/login", s.handleLogin)
 	s.mux.HandleFunc("GET /auth/callback", s.handleCallback)
 	s.mux.HandleFunc("POST /auth/apptoken", s.csrf(s.handleAppToken))
+	s.mux.HandleFunc("POST /auth/demo", s.csrf(s.handleDemo))
 	s.mux.HandleFunc("POST /auth/logout", s.csrf(s.handleLogout))
 
 	s.mux.HandleFunc("GET /api/me", s.handleMe)

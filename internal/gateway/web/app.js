@@ -28,8 +28,43 @@
   const baseOf = (p) => p.slice(p.lastIndexOf('/') + 1);
   const qs = (o) => new URLSearchParams(o).toString();
 
+
+  // ---------- icons (Lucide-style line icons, inline so there is nothing to load) ----------
+  const ICONS = {
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+    upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
+    pencil: '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+    folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+    folderPlus: '<path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+    file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
+    fileText: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+    image: '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/>',
+    table: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/>',
+    braces: '<path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"/>',
+    archive: '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+    move: '<path d="M3 5v14"/><path d="M21 12H7"/><path d="m15 18 6-6-6-6"/>',
+    copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+    trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>',
+    refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
+    moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+    logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+    user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98"/><path d="m15.41 6.51-6.82 3.98"/>',
+    chevron: '<path d="m9 18 6-6-6-6"/>',
+  };
+  const icon = (name, size = 16) => {
+    const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('width', size); s.setAttribute('height', size);
+    s.setAttribute('fill', 'none'); s.setAttribute('stroke', 'currentColor'); s.setAttribute('stroke-width', '1.75');
+    s.setAttribute('stroke-linecap', 'round'); s.setAttribute('stroke-linejoin', 'round'); s.setAttribute('aria-hidden', 'true');
+    s.setAttribute('class', 'i'); s.innerHTML = ICONS[name]; return s;
+  };
+
   // ---------- state ----------
-  const state = { me: null, drives: [], driveId: null, path: '/', entries: [], loading: false };
+  const state = { me: null, demo: false, oidc: true, drives: [], driveId: null, path: '/', entries: [], loading: false };
+  const KIND = { personal: 'Personal', project: 'Team space', shared: 'Shared with you' };
   const drive = () => state.drives.find((d) => d.id === state.driveId);
   const readOnly = () => !!(drive() && drive().readOnly);
 
@@ -80,13 +115,13 @@
         h('button', { class: 'btn ' + (danger ? 'danger' : 'primary'), onclick: () => { done(true); closeDialog(); } }, ok))]).then((v) => !!v);
   }
 
-  // ---------- theme (system by default, ☀️/🌙 overrides and is remembered) ----------
+  // ---------- theme (system by default, the sun/moon button overrides and is remembered) ----------
   const sysDark = matchMedia('(prefers-color-scheme: dark)');
   let pref = localStorage.getItem('theme'); // 'light' | 'dark' | null = follow the system
   const isDark = () => (pref ? pref === 'dark' : sysDark.matches);
   const applyTheme = () => { document.documentElement.dataset.theme = isDark() ? 'dark' : 'light'; };
   const toggleTheme = () => { pref = isDark() ? 'light' : 'dark'; localStorage.setItem('theme', pref); applyTheme(); render(); };
-  const themeBtn = () => h('button', { class: 'iconbtn theme', title: 'Switch between light and dark', 'aria-label': 'Switch between light and dark theme', onclick: toggleTheme }, isDark() ? '☀️' : '🌙');
+  const themeBtn = () => h('button', { class: 'iconbtn theme', title: 'Switch between light and dark', 'aria-label': 'Switch between light and dark theme', onclick: toggleTheme }, icon(isDark() ? 'sun' : 'moon', 18));
   const logo = (cls) => h('img', { class: cls, alt: 'odrive', src: '/assets/odrive-lockup-' + (isDark() ? 'light' : 'dark') + '-text.svg' });
   sysDark.addEventListener('change', () => { applyTheme(); render(); });
   applyTheme();
@@ -94,20 +129,18 @@
   // ---------- views ----------
   function loginView() {
     const err = h('div', { class: 'err', role: 'alert' });
-    const user = h('input', { type: 'text', value: 'admin', autocomplete: 'username', required: true });
-    const tok = h('input', { type: 'password', autocomplete: 'current-password', required: true, placeholder: 'e.g. uproar class cactus palm given flail' });
-    const form = h('form', { class: 'stack', onsubmit: async (e) => {
-      e.preventDefault(); err.textContent = '';
-      try { await api('/auth/apptoken', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: user.value, token: tok.value }) }); await boot(); }
-      catch (x) { err.textContent = x.code === 'auth' ? 'OpenCloud did not accept that username and app token.' : x.message; }
-    } }, h('label', {}, 'Username', user), h('label', {}, 'App token', tok), err, h('button', { class: 'btn' }, 'Sign in with app token'));
+    const demo = state.demo ? h('button', { class: 'btn', onclick: async () => {
+      err.textContent = '';
+      try { await api('/auth/demo', { method: 'POST' }); await boot(); }
+      catch (x) { err.textContent = x.message; }
+    } }, 'Try the demo') : '';
+    if (demo && !state.oidc) demo.classList.add('primary');
     return h('div', { class: 'login' }, h('div', { class: 'corner' }, themeBtn()), h('div', { class: 'card' },
       logo('logo'), h('h1', {}, 'Sign in'),
       h('p', {}, 'A demo of the Odraz Go SDK: this page browses files stored in OpenCloud through a small gateway.'),
-      h('a', { class: 'btn primary', href: '/auth/login' }, 'Sign in with Pocket ID'),
-      h('div', { class: 'or' }, 'or'),
-      h('details', {}, h('summary', {}, 'Use an OpenCloud app token'), form),
-      h('p', { class: 'fine' }, 'Pocket ID uses passkeys. First time? Run ', h('code', {}, 'make login-link'), ' and open the link once to register one.')));
+      state.oidc ? h('a', { class: 'btn primary', href: '/auth/login' }, 'Sign in with Pocket ID') : '',
+      state.oidc && demo ? h('div', { class: 'or' }, 'or') : '', demo, err,
+      state.oidc ? h('p', { class: 'fine' }, 'Pocket ID uses passkeys. First time? Run ', h('code', {}, 'make login-link'), ' and open the link once to register one.') : ''));
   }
 
   function crumbs() {
@@ -116,20 +149,19 @@
     const add = (label, p, last) => el.append(h('button', { onclick: () => go(p), 'aria-current': last ? 'page' : null }, label));
     add(drive() ? drive().name : 'Drive', '/', parts.length === 0);
     let acc = '';
-    parts.forEach((seg, i) => { acc += '/' + seg; el.append(h('span', { class: 'sep' }, '›')); add(seg, acc, i === parts.length - 1); });
+    parts.forEach((seg, i) => { acc += '/' + seg; el.append(h('span', { class: 'sep' }, icon('chevron', 14))); add(seg, acc, i === parts.length - 1); });
     return el;
   }
 
   function iconFor(e) {
-    if (e.isDir) return '📁';
+    if (e.isDir) return icon('folder', 18);
     const m = e.mime || '';
-    if (m.startsWith('image/svg')) return '🎨';
-    if (m.startsWith('image/')) return '🖼️';
-    if (m === 'text/csv') return '📊';
-    if (m === 'application/json') return '🧾';
-    if (m.startsWith('text/')) return '📝';
-    if (/\.(bin|zip|gz|tar|7z)$/i.test(e.name)) return '📦';
-    return '📄';
+    if (m.startsWith('image/')) return icon('image', 18);
+    if (m === 'text/csv') return icon('table', 18);
+    if (m === 'application/json') return icon('braces', 18);
+    if (m.startsWith('text/')) return icon('fileText', 18);
+    if (/\.(bin|zip|gz|tar|7z)$/i.test(e.name)) return icon('archive', 18);
+    return icon('file', 18);
   }
 
   function row(e) {
@@ -140,25 +172,25 @@
       h('td', { class: 'muted num' }, e.isDir ? '' : fmtSize(e.size)),
       h('td', { class: 'muted mod' }, fmtDate(e.modTime)),
       h('td', { class: 'actions' },
-        e.isDir ? '' : btn('Download', '⬇️', () => { location.href = fileUrl(e.path); }),
-        btn('Rename', '✏️', () => rename(e), ro), btn('Move', '➡️', () => moveOrCopy(e, 'move'), ro),
-        btn('Copy', '📋', () => moveOrCopy(e, 'copy'), ro), btn('Delete', '🗑️', () => remove(e), ro)));
+        e.isDir ? '' : btn('Download', icon('download'), () => { location.href = fileUrl(e.path); }),
+        btn('Rename', icon('pencil'), () => rename(e), ro), btn('Move', icon('move'), () => moveOrCopy(e, 'move'), ro),
+        btn('Copy', icon('copy'), () => moveOrCopy(e, 'copy'), ro), btn('Delete', icon('trash'), () => remove(e), ro)));
   }
 
   function appView() {
     const d = drive();
-    const side = h('aside', {}, h('h2', {}, 'Drives'), ...state.drives.map((dr) => {
+    const side = h('aside', {}, h('h2', {}, 'Spaces'), ...state.drives.map((dr) => {
       const pct = dr.total ? Math.min(100, (dr.used / dr.total) * 100) : 0;
       return h('button', { class: 'drive', 'aria-current': dr.id === state.driveId ? 'true' : 'false', onclick: () => { state.driveId = dr.id; go('/'); } },
-        dr.name, h('small', {}, dr.kind + (dr.readOnly ? ' · read-only' : '') + (dr.used != null ? ' · ' + fmtSize(dr.used) + (dr.total ? ' of ' + fmtSize(dr.total) : ' used') : '')),
+        h('span', { class: 'dn' }, icon(dr.kind === 'personal' ? 'user' : dr.kind === 'project' ? 'users' : 'share'), dr.name), h('small', {}, (KIND[dr.kind] || dr.kind) + (dr.readOnly ? ' · read-only' : '') + (dr.used != null ? ' · ' + fmtSize(dr.used) + (dr.total ? ' of ' + fmtSize(dr.total) : ' used') : '')),
         dr.total ? h('div', { class: 'bar' }, h('i', { style: 'width:' + pct + '%' })) : '');
     }));
 
     const fileInput = h('input', { type: 'file', multiple: true, hidden: true, onchange: () => { uploadFiles([...fileInput.files]); fileInput.value = ''; } });
     const toolbar = h('div', { class: 'toolbar' },
-      h('button', { class: 'btn primary', disabled: readOnly(), onclick: () => fileInput.click() }, '⬆️ Upload'), fileInput,
-      h('button', { class: 'btn', disabled: readOnly(), onclick: newFolder }, '📁 New folder'),
-      h('button', { class: 'btn', onclick: () => load() }, '🔄 Refresh'),
+      h('button', { class: 'btn primary', disabled: readOnly(), onclick: () => fileInput.click() }, icon('upload'), 'Upload'), fileInput,
+      h('button', { class: 'btn', disabled: readOnly(), onclick: newFolder }, icon('folderPlus'), 'New folder'),
+      h('button', { class: 'btn', onclick: () => load() }, icon('refresh'), 'Refresh'),
       readOnly() ? h('span', { class: 'ro' }, 'This drive is read-only') : '');
 
     const body = state.loading ? h('div', { class: 'empty' }, 'Loading…')
@@ -219,7 +251,7 @@
         }).catch((x) => box.replaceChildren(h('div', { class: 'empty' }, x.message)));
       }
       return [h('h2', {}, e.name), box, h('div', { class: 'meta' }, fmtSize(e.size) + ' · ' + (type || 'unknown type') + ' · ' + fmtDate(e.modTime)),
-        h('div', { class: 'row' }, h('a', { class: 'btn', href: fileUrl(e.path) }, '⬇️ Download'), h('button', { class: 'btn primary', onclick: () => closeDialog() }, 'Close'))];
+        h('div', { class: 'row' }, h('a', { class: 'btn', href: fileUrl(e.path) }, icon('download'), 'Download'), h('button', { class: 'btn primary', onclick: () => closeDialog() }, 'Close'))];
     }, true);
   }
 
@@ -313,6 +345,7 @@
   async function boot() {
     try {
       const me = await api('/api/me');
+      state.demo = !!me.demo; state.oidc = me.oidc !== false;
       if (!me.authenticated) { state.me = null; return render(); }
       state.me = me;
       const order = { personal: 0, project: 1, shared: 2 };

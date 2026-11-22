@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	odraz "github.com/odrazdotxyz/odraz-go-sdk"
@@ -79,7 +80,7 @@ func TestIDTokenName(t *testing.T) {
 }
 
 func TestGuards(t *testing.T) {
-	s := New(Config{PublicURL: "http://localhost:8080", OpenCloudURL: "https://localhost:9200", ClientID: "x"})
+	s := New(Config{PublicURL: "http://localhost:8080", ServerURL: "https://localhost:9200", ClientID: "x"})
 	srv := httptest.NewServer(s)
 	defer srv.Close()
 	do := func(method, path string, hdr map[string]string) int {
@@ -111,5 +112,32 @@ func TestGuards(t *testing.T) {
 	}
 	if c := do("GET", "/auth/callback", nil); c != 502 {
 		t.Errorf("callback without a login in progress: %d, want the error page", c)
+	}
+}
+
+func TestDemoLoginDisabledByDefault(t *testing.T) {
+	srv := New(Config{})
+	req := httptest.NewRequest("POST", "/auth/demo", nil)
+	req.Header.Set("X-Requested-With", "odraz-demo")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != 404 {
+		t.Fatalf("status = %d, want 404 when no demo token is configured", rec.Code)
+	}
+}
+
+// With the Nextcloud backend there is no browser (OIDC) sign-in: the page must be told to hide it.
+func TestNextcloudBackendHasNoOIDCLogin(t *testing.T) {
+	s := New(Config{Backend: "nextcloud", ServerURL: "http://localhost:8082", PublicURL: "http://localhost:8080"})
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest("GET", "/api/me", nil))
+	if !strings.Contains(rec.Body.String(), `"oidc":false`) {
+		t.Errorf("/api/me = %s, want oidc:false", rec.Body.String())
+	}
+	if a := s.baseAccount(); a.Adapter != "nextcloud" {
+		t.Errorf("adapter = %q", a.Adapter)
+	}
+	if m := s.authMethod(); m != "app-password" {
+		t.Errorf("auth method = %q", m)
 	}
 }
