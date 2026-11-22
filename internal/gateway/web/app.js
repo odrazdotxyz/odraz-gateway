@@ -449,6 +449,12 @@
   // ---------- Photos ----------
   const thumbUrl = (it, size = 256) => '/api/thumb?' + qs(at(it, { path: it.path, size }));
 
+  // Servers rarely make thumbnails for videos (OpenCloud has none; Nextcloud needs ffmpeg). When there is none,
+  // the tile shows the video's own first frame, fetched with a Range request only once the tile scrolls into view.
+  const lazyLoad = new IntersectionObserver((entries) => entries.forEach((en) => {
+    if (en.isIntersecting) { lazyLoad.unobserve(en.target); en.target._load && en.target._load(); }
+  }), { rootMargin: '300px' });
+
   // One tile: a picture or video (thumbnail), a folder (Folders view), or another file ("Show all files").
   // Hover or keyboard focus shows its actions: download, rename, move, delete.
   function tile(it) {
@@ -462,7 +468,14 @@
       // The server renders thumbnails. If it has none for this file (HTTP 501), a picture falls back to the
       // original (shown scaled down by the browser); anything else gets a plain tile.
       img.onerror = () => {
-        if (kind === 'image' && !img.dataset.fallback) { img.dataset.fallback = '1'; img.src = fileUrl(it, { inline: 1 }); } else generic(kind === 'video' ? 'film' : 'image');
+        if (kind === 'image' && !img.dataset.fallback) { img.dataset.fallback = '1'; img.src = fileUrl(it, { inline: 1 }); }
+        else if (kind === 'video') {
+          const v = h('video', { muted: true, playsinline: true, preload: 'none', tabindex: '-1', 'aria-hidden': 'true' });
+          v.muted = true;
+          v.onerror = () => generic('film');
+          v._load = () => { v.preload = 'metadata'; v.src = fileUrl(it, { inline: 1 }) + '#t=0.1'; };
+          frame.replaceChildren(v); lazyLoad.observe(v);
+        } else generic('image');
       };
       frame.append(img);
     }
