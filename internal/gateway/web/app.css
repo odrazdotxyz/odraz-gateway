@@ -192,7 +192,7 @@ dialog .opt { margin-bottom: var(--space-2); }
 @media (max-width: 800px) {
   .layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   aside { border-right: 0; border-bottom: 1px solid var(--border-subtle); display: flex; gap: var(--space-2); overflow-x: auto; }
-  .sidenav, .ngroup, .nitems { display: contents; } .ngroup > .nhead { display: none; } .nitem { width: auto; flex: none; } .nitem .nl small { display: none; } .nitems { margin: 0; padding: 0; border: 0; }
+  .sidenav, .ngroup, .nitems { display: contents; } .ngroup > .nhead { display: none; } .nitem { width: auto; flex: none; } .nitems { margin: 0; padding: 0; border: 0; }
   aside h2, .acct, .usage { display: none; } .drive { width: auto; flex: none; } .drive small, .drive .bar { display: none; }
   .topbar { padding: 0 var(--space-3); } .chip { display: none; }
   main { padding: var(--space-3); }
@@ -325,9 +325,5 @@ tr.selected:hover td { background: var(--selected); }
 .nhead .nlogo { width: 20px; height: 20px; border-radius: 5px; display: block; flex: none; }
 .nhead svg.i { color: var(--ink-muted); transition: transform .12s; }
 .nhead[aria-expanded=false] svg.i { transform: rotate(-90deg); }
-.ngroup.has-active .nhead .nl { color: var(--accent); }
 .nitems { margin: 2px 0 var(--space-2) 19px; padding-left: var(--space-2); border-left: 1px solid var(--border-subtle); }
-.nitem[aria-current=true] { background: var(--selected); }
-.nitem[aria-current=true] .nl { color: var(--accent); }
-.nitem .nl small { display: block; color: var(--ink-muted); font-weight: 400; font-size: 12px; line-height: 16px; }
-.nitem[aria-current=true] .nl small { color: var(--ink-muted); }
+.nitem[aria-current=true] { background: var(--hover); }

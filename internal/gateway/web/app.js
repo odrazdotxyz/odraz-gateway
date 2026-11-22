@@ -393,7 +393,7 @@
       navGroup('drives', 'Drives', '/assets/favicon.svg', drives, inFiles && state.cat !== 'photos'),
       h('button', { class: 'nhead nitem', 'aria-current': photosOn ? 'true' : 'false', onclick: () => openCat('photos') },
         h('img', { class: 'nlogo', src: '/assets/ogram-favicon.svg', alt: '', width: 20, height: 20 }),
-        h('span', { class: 'nl' }, 'Photos', h('small', {}, catSummary(catById('photos'))))));
+        h('span', { class: 'nl' }, 'Photos')));
   }
 
   // ---------- storage usage ----------
