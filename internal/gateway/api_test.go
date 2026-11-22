@@ -2,11 +2,11 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	odraz "github.com/odrazdotxyz/odraz-go-sdk"
@@ -80,7 +80,7 @@ func TestIDTokenName(t *testing.T) {
 }
 
 func TestGuards(t *testing.T) {
-	s := New(Config{PublicURL: "http://localhost:8080", ServerURL: "https://localhost:9200", ClientID: "x"})
+	s := New(Config{PublicURL: "http://localhost:8080", ClientID: "x", Backends: []Backend{{ID: "opencloud", Vendor: "opencloud", URL: "https://localhost:9200"}}})
 	srv := httptest.NewServer(s)
 	defer srv.Close()
 	do := func(method, path string, hdr map[string]string) int {
@@ -126,18 +126,34 @@ func TestDemoLoginDisabledByDefault(t *testing.T) {
 	}
 }
 
-// With the Nextcloud backend there is no browser (OIDC) sign-in: the page must be told to hide it.
-func TestNextcloudBackendHasNoOIDCLogin(t *testing.T) {
-	s := New(Config{Backend: "nextcloud", ServerURL: "http://localhost:8082", PublicURL: "http://localhost:8080"})
+// Nextcloud has no browser (OIDC) sign-in: /api/me must say so per backend, and say which have demo credentials.
+func TestMeListsBackends(t *testing.T) {
+	s := New(Config{PublicURL: "http://localhost:8080", Backends: []Backend{
+		{ID: "opencloud", Vendor: "opencloud", URL: "https://localhost:9200"},
+		{ID: "nextcloud", Vendor: "nextcloud", URL: "http://localhost:8082", DemoUser: "alice", DemoToken: "x"},
+	}})
 	rec := httptest.NewRecorder()
 	s.ServeHTTP(rec, httptest.NewRequest("GET", "/api/me", nil))
-	if !strings.Contains(rec.Body.String(), `"oidc":false`) {
-		t.Errorf("/api/me = %s, want oidc:false", rec.Body.String())
+	var me struct {
+		Authenticated, Demo bool
+		Backends            []struct {
+			ID, Vendor            string
+			OIDC, Demo, Connected bool
+		}
 	}
-	if a := s.baseAccount(); a.Adapter != "nextcloud" {
-		t.Errorf("adapter = %q", a.Adapter)
+	if err := json.Unmarshal(rec.Body.Bytes(), &me); err != nil {
+		t.Fatal(err)
 	}
-	if m := s.authMethod(); m != "app-password" {
-		t.Errorf("auth method = %q", m)
+	if me.Authenticated || !me.Demo || len(me.Backends) != 2 {
+		t.Fatalf("me = %+v", me)
+	}
+	if b := me.Backends[0]; b.ID != "opencloud" || !b.OIDC || b.Demo || b.Connected {
+		t.Errorf("opencloud = %+v", b)
+	}
+	if b := me.Backends[1]; b.ID != "nextcloud" || b.OIDC || !b.Demo || b.Connected {
+		t.Errorf("nextcloud = %+v", b)
+	}
+	if authMethod(s.cfg.Backends[1]) != "app-password" || s.baseAccount(s.cfg.Backends[1]).Adapter != "nextcloud" {
+		t.Error("nextcloud must use the app-password method and the nextcloud adapter")
 	}
 }

@@ -2,6 +2,7 @@
    surfaces for neutral ones so the app stays calm (dark mode is plain near-black). */
 
 :root, [data-theme="light"] {
+  color-scheme: light;
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --accent: #2f6fed;
   --accent-ink: #fff;
@@ -25,6 +26,7 @@
   --toast-bg: #111;
 }
 [data-theme="dark"] {
+  color-scheme: dark;
   --accent: #5b9bff;
   --accent-ink: #06090f;
   --surface-page: #0a0a0a;
@@ -164,10 +166,34 @@ dialog input[type=text] { width: 100%; }
 .toast { background: var(--toast-bg); color: #fff; padding: 9px 14px; border-radius: var(--radius-md); box-shadow: var(--shadow-overlay); max-width: 90vw; font-size: 13px; }
 .toast.err { background: #b3261e; }
 
+/* vendor badges, accounts, choosers */
+.vb { display: block; flex: none; }
+.name .ic { position: relative; }
+.vb-corner { position: absolute; right: -5px; bottom: -4px; line-height: 0; border-radius: 50%; box-shadow: 0 0 0 2px var(--surface-page); }
+tr:hover .vb-corner { box-shadow: 0 0 0 2px color-mix(in srgb, var(--surface-page), var(--ink) 4.5%); }
+.vbs { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: -2px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; }
+.where { display: inline-flex; align-items: center; gap: 6px; margin-left: var(--space-3); padding: 2px 8px 2px 6px; border-radius: var(--radius-pill);
+  border: 1px solid var(--border-subtle); color: var(--ink-muted); font-size: 12px; }
+aside h2.acc { margin-top: var(--space-6); }
+.acct { display: flex; align-items: center; gap: 10px; padding: 6px 10px; }
+.acct .at { flex: 1; min-width: 0; }
+.acct .at b { font-weight: 500; display: block; }
+.acct .at small { display: block; color: var(--ink-muted); font-size: 12px; line-height: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct.off .at b { color: var(--ink-muted); }
+.acct.off .vb { opacity: .45; }
+.opt { display: flex; flex-direction: row; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: var(--space-2); border: 1px solid var(--border-control);
+  border-radius: var(--radius-md); cursor: pointer; font-size: 14px; color: var(--ink); }
+.opt:has(input:checked) { border-color: var(--accent); background: var(--selected); }
+.opt input { accent-color: var(--accent); }
+select { padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-control); background: var(--surface-page); color: inherit; }
+dialog label { margin-bottom: var(--space-3); }
+dialog .opt { margin-bottom: var(--space-2); }
+
 @media (max-width: 800px) {
   .layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   aside { border-right: 0; border-bottom: 1px solid var(--border-subtle); display: flex; gap: var(--space-2); overflow-x: auto; }
-  aside h2 { display: none; } .drive { width: auto; flex: none; } .drive small, .drive .bar { display: none; }
+  aside h2, .acct { display: none; } .drive { width: auto; flex: none; } .drive small, .drive .bar { display: none; }
   .topbar { padding: 0 var(--space-3); } .chip { display: none; }
   main { padding: var(--space-3); }
   td.muted.mod, th.mod { display: none; }

@@ -26,15 +26,22 @@ import (
 //go:embed web
 var webFS embed.FS
 
+// Backend is one storage server the gateway can connect to. Several can be configured; a session
+// can connect to any of them and the page shows their files together.
+type Backend struct {
+	ID        string // unique, e.g. "opencloud"; also the account ID
+	Vendor    string // SDK adapter: "opencloud" or "nextcloud"
+	URL       string // e.g. https://localhost:9200
+	DemoUser  string // with DemoToken: lets the demo button connect without typing anything (demo only)
+	DemoToken string
+}
+
 // Config configures the gateway.
 type Config struct {
-	PublicURL string // where browsers reach the gateway, e.g. http://localhost:8080 (OIDC redirect base)
-	Backend   string // "opencloud" (default) or "nextcloud"
-	ServerURL string // the backend, e.g. https://localhost:9200 (OpenCloud) or http://localhost:8082 (Nextcloud)
-	ClientID  string // OIDC client registered in the identity provider for this gateway
-	Insecure  bool   // accept OpenCloud's self-signed certificate
-	DemoUser  string // with DemoToken: enables one-click "Try the demo" sign-in (demo only)
-	DemoToken string
+	PublicURL string    // where browsers reach the gateway, e.g. http://localhost:8080 (OIDC redirect base)
+	ClientID  string    // OIDC client registered in the identity provider for this gateway
+	Insecure  bool      // accept self-signed certificates (OpenCloud's demo certificate)
+	Backends  []Backend // at least one
 }
 
 // Server is the gateway's http.Handler.
@@ -51,15 +58,23 @@ const (
 	sessionTTL = 12 * time.Hour
 )
 
+// account is one backend a session is connected to.
+type account struct {
+	backend Backend
+	acc     accounts.Account
+	method  string // "oidc" or "app-token" / "app-password"
+	user    string
+	client  files.Client
+	drives  map[string]files.FS
+}
+
 type session struct {
 	mu      sync.Mutex
 	store   *accounts.MemoryStore
-	acc     accounts.Account
-	method  string // "oidc" or "app-token"
-	user    string
-	pending *oidc.Session // login in progress
-	client  files.Client  // set once signed in
-	drives  map[string]files.FS
+	accts   map[string]*account // by backend ID
+	pending *oidc.Session       // browser login in progress
+	pendAcc accounts.Account
+	pendBE  Backend
 	created time.Time
 }
 
@@ -73,6 +88,7 @@ func New(cfg Config) *Server {
 	s.mux.HandleFunc("GET /auth/callback", s.handleCallback)
 	s.mux.HandleFunc("POST /auth/apptoken", s.csrf(s.handleAppToken))
 	s.mux.HandleFunc("POST /auth/demo", s.csrf(s.handleDemo))
+	s.mux.HandleFunc("POST /auth/disconnect", s.csrf(s.handleDisconnect))
 	s.mux.HandleFunc("POST /auth/logout", s.csrf(s.handleLogout))
 
 	s.mux.HandleFunc("GET /api/me", s.handleMe)
@@ -121,7 +137,7 @@ func (s *Server) csrf(next http.HandlerFunc) http.HandlerFunc {
 func (s *Server) authed(next func(http.ResponseWriter, *http.Request, *session)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sess := s.lookup(r)
-		if sess == nil || sess.client == nil {
+		if sess == nil || !sess.signedIn() {
 			writeErr(w, http.StatusUnauthorized, "not signed in")
 			return
 		}
@@ -144,13 +160,14 @@ func (s *Server) lookup(r *http.Request) *session {
 	return sess
 }
 
-// newSession starts a fresh session (dropping any previous one) and sets the cookie.
-func (s *Server) newSession(w http.ResponseWriter, r *http.Request) *session {
+// ensureSession returns the caller's session, creating one (and setting the cookie) if there is none.
+// A session can hold several accounts, so signing in to a second backend keeps the first.
+func (s *Server) ensureSession(w http.ResponseWriter, r *http.Request) *session {
+	if sess := s.lookup(r); sess != nil {
+		return sess
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if c, err := r.Cookie(cookieName); err == nil {
-		delete(s.sessions, c.Value)
-	}
 	for id, old := range s.sessions { // forget expired sessions
 		if time.Since(old.created) > sessionTTL {
 			delete(s.sessions, id)
@@ -161,11 +178,27 @@ func (s *Server) newSession(w http.ResponseWriter, r *http.Request) *session {
 		panic(err)
 	}
 	id := base64.RawURLEncoding.EncodeToString(b)
-	sess := &session{store: accounts.NewMemoryStore(), drives: map[string]files.FS{}, created: time.Now()}
+	sess := &session{store: accounts.NewMemoryStore(), accts: map[string]*account{}, created: time.Now()}
 	s.sessions[id] = sess
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: id, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode,
 		Secure: len(s.cfg.PublicURL) > 5 && s.cfg.PublicURL[:5] == "https", MaxAge: int(sessionTTL / time.Second)})
 	return sess
+}
+
+func (sess *session) signedIn() bool {
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	return len(sess.accts) > 0
+}
+
+// backend looks a configured backend up by ID.
+func (s *Server) backend(id string) (Backend, bool) {
+	for _, b := range s.cfg.Backends {
+		if b.ID == id {
+			return b, true
+		}
+	}
+	return Backend{}, false
 }
 
 func (s *Server) dropSession(w http.ResponseWriter, r *http.Request) {

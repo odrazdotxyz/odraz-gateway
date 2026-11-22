@@ -78,6 +78,8 @@ func writeError(w http.ResponseWriter, err error) {
 // ---- drives and entries ----
 
 type driveJSON struct {
+	Acct     string `json:"acct"`   // which connected backend it belongs to
+	Vendor   string `json:"vendor"` // "opencloud" | "nextcloud"
 	ID       string `json:"id"`
 	Name     string `json:"name"`
 	Kind     string `json:"kind"`
@@ -86,26 +88,43 @@ type driveJSON struct {
 	Total    *int64 `json:"total,omitempty"` // absent when unlimited or unknown
 }
 
+// handleDrives lists the drives of every connected backend. A backend that fails is reported in
+// "errors" and does not hide the others.
 func (s *Server) handleDrives(w http.ResponseWriter, r *http.Request, sess *session) {
-	ds, err := sess.client.Drives(r.Context())
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	out := make([]driveJSON, 0, len(ds))
-	for _, d := range ds {
-		j := driveJSON{ID: d.ID, Name: d.Name, Kind: string(d.Kind), ReadOnly: d.ReadOnly}
-		if q := d.Quota; q != nil {
-			if q.Used >= 0 {
-				j.Used = &q.Used
-			}
-			if q.Total > 0 {
-				j.Total = &q.Total
-			}
+	out := []driveJSON{}
+	errs := map[string]string{}
+	for _, a := range sess.accounts() {
+		ds, err := a.client.Drives(r.Context())
+		if err != nil {
+			errs[a.backend.ID] = err.Error()
+			continue
 		}
-		out = append(out, j)
+		for _, d := range ds {
+			j := driveJSON{Acct: a.backend.ID, Vendor: a.backend.Vendor, ID: d.ID, Name: d.Name, Kind: string(d.Kind), ReadOnly: d.ReadOnly}
+			if q := d.Quota; q != nil {
+				if q.Used >= 0 {
+					j.Used = &q.Used
+				}
+				if q.Total > 0 {
+					j.Total = &q.Total
+				}
+			}
+			out = append(out, j)
+		}
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, map[string]any{"drives": out, "errors": errs})
+}
+
+// accounts returns the connected accounts in the order the backends were configured.
+func (sess *session) accounts() []*account {
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	out := make([]*account, 0, len(sess.accts))
+	for _, a := range sess.accts {
+		out = append(out, a)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].backend.ID < out[j].backend.ID })
+	return out
 }
 
 type entryJSON struct {
@@ -138,24 +157,35 @@ func contentType(e files.Entry) string {
 	return "application/octet-stream"
 }
 
-// fsFor returns the FS of the drive named by ?drive=, opened once per session.
+// fsFor returns the FS of the drive named by ?acct= and ?drive=, opened once per session.
 func (s *Server) fsFor(r *http.Request, sess *session) (files.FS, error) {
-	id := r.URL.Query().Get("drive")
+	q := r.URL.Query()
+	return s.openFS(r.Context(), sess, q.Get("acct"), q.Get("drive"))
+}
+
+func (s *Server) openFS(ctx context.Context, sess *session, acct, id string) (files.FS, error) {
 	if id == "" {
 		return nil, fmt.Errorf("missing drive parameter: %w", odraz.ErrInvalidPath)
 	}
 	sess.mu.Lock()
-	fs, ok := sess.drives[id]
+	a := sess.accts[acct]
+	var fs files.FS
+	if a != nil {
+		fs = a.drives[id]
+	}
 	sess.mu.Unlock()
-	if ok {
+	if a == nil {
+		return nil, fmt.Errorf("not connected to %q: %w", acct, odraz.ErrNotFound)
+	}
+	if fs != nil {
 		return fs, nil
 	}
-	fs, err := sess.client.OpenDrive(r.Context(), id)
+	fs, err := a.client.OpenDrive(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	sess.mu.Lock()
-	sess.drives[id] = fs
+	a.drives[id] = fs
 	sess.mu.Unlock()
 	return fs, nil
 }
@@ -339,22 +369,82 @@ func (s *Server) handleMkdir(w http.ResponseWriter, r *http.Request, sess *sessi
 	reply(w, err)
 }
 
+// move and copy take from/to inside the drive named by acct/drive. With toAcct/toDrive the target is
+// another drive, possibly on another backend: the bytes then go through the gateway (read from the
+// source, write to the target), so it is slower than a move inside one server and not atomic.
 func (s *Server) handleMove(w http.ResponseWriter, r *http.Request, sess *session) {
-	fs, err := s.fsFor(r, sess)
-	if err == nil {
-		q := r.URL.Query()
-		err = fs.Move(r.Context(), q.Get("from"), q.Get("to"), q.Get("overwrite") == "1")
+	s.moveOrCopy(w, r, sess, true)
+}
+
+func (s *Server) handleCopy(w http.ResponseWriter, r *http.Request, sess *session) {
+	s.moveOrCopy(w, r, sess, false)
+}
+
+func (s *Server) moveOrCopy(w http.ResponseWriter, r *http.Request, sess *session, move bool) {
+	q := r.URL.Query()
+	src, err := s.fsFor(r, sess)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	from, to, overwrite := q.Get("from"), q.Get("to"), q.Get("overwrite") == "1"
+	toAcct, toDrive := q.Get("toAcct"), q.Get("toDrive")
+	if toAcct == "" {
+		toAcct = q.Get("acct")
+	}
+	if toDrive == "" {
+		toDrive = q.Get("drive")
+	}
+	if toAcct == q.Get("acct") && toDrive == q.Get("drive") {
+		if move {
+			err = src.Move(r.Context(), from, to, overwrite)
+		} else {
+			err = files.Copy(r.Context(), src, from, to, overwrite)
+		}
+		reply(w, err)
+		return
+	}
+	dst, err := s.openFS(r.Context(), sess, toAcct, toDrive)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err = copyAcross(r.Context(), src, from, dst, to, overwrite); err == nil && move {
+		err = src.Delete(r.Context(), from, true)
 	}
 	reply(w, err)
 }
 
-func (s *Server) handleCopy(w http.ResponseWriter, r *http.Request, sess *session) {
-	fs, err := s.fsFor(r, sess)
-	if err == nil {
-		q := r.URL.Query()
-		err = files.Copy(r.Context(), fs, q.Get("from"), q.Get("to"), q.Get("overwrite") == "1")
+// copyAcross copies a file or a whole folder from one FS to another.
+func copyAcross(ctx context.Context, src files.FS, from string, dst files.FS, to string, overwrite bool) error {
+	st, err := src.Stat(ctx, from)
+	if err != nil {
+		return err
 	}
-	reply(w, err)
+	if _, err := dst.Stat(ctx, to); err == nil && !overwrite {
+		return fmt.Errorf("%s already exists: %w", to, odraz.ErrExists)
+	}
+	if !st.IsDir {
+		rc, err := src.Read(ctx, from, 0, -1)
+		if err != nil {
+			return err
+		}
+		defer rc.Close()
+		return files.Upload(ctx, dst, to, rc, files.WriteOptions{Size: st.Size, Overwrite: overwrite})
+	}
+	if err := dst.Mkdir(ctx, to); err != nil {
+		return err
+	}
+	kids, err := src.List(ctx, from)
+	if err != nil {
+		return err
+	}
+	for _, k := range kids {
+		if err := copyAcross(ctx, src, path.Join(from, k.Name), dst, path.Join(to, k.Name), overwrite); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request, sess *session) {
