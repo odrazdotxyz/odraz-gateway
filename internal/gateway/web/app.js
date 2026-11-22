@@ -194,7 +194,8 @@
   const applyTheme = () => { document.documentElement.dataset.theme = isDark() ? 'dark' : 'light'; };
   const toggleTheme = () => { pref = isDark() ? 'light' : 'dark'; localStorage.setItem('theme', pref); applyTheme(); render(); };
   const themeBtn = () => h('button', { class: 'iconbtn theme', title: 'Switch between light and dark', 'aria-label': 'Switch between light and dark theme', onclick: toggleTheme }, icon(isDark() ? 'sun' : 'moon', 18));
-  const logo = (cls) => h('img', { class: cls, alt: 'odrive', src: '/assets/odrive-lockup-' + (isDark() ? 'light' : 'dark') + '-text.svg' });
+  // The login card carries the odrive logo (this is the odrive demo); the top bar carries the parent brand, Odraz.
+  const logo = (cls, brand = 'odrive') => h('img', { class: cls, alt: brand, src: '/assets/' + brand + '-lockup-' + (isDark() ? 'light' : 'dark') + '-text.svg' });
   sysDark.addEventListener('change', () => { applyTheme(); render(); });
   applyTheme();
 
@@ -444,7 +445,7 @@
     if (!state.settings) wireDrop(main);
 
     return h('div', { class: 'shell' },
-      h('header', { class: 'topbar' }, logo('logo'), h('div', { class: 'spacer' }),
+      h('header', { class: 'topbar' }, logo('logo', 'odraz'), h('div', { class: 'spacer' }),
         ...state.backends.map(accountButton),
         themeBtn(), h('button', { class: 'iconbtn theme' + (state.settings ? ' active' : ''), title: 'Settings', 'aria-label': 'Settings', 'aria-pressed': String(state.settings),
           onclick: () => (state.settings ? openCat(state.cat) : openSettingsPage()) }, icon('settings', 18))),

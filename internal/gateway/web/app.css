@@ -97,9 +97,9 @@ input[type=text], input[type=password] { padding: 8px 10px; border-radius: var(-
 
 /* app shell */
 .shell { display: grid; grid-template-rows: auto 1fr; height: 100%; }
-.topbar { display: flex; align-items: center; gap: var(--space-3); padding: 0 var(--space-4); height: 52px;
+.topbar { display: flex; align-items: center; gap: var(--space-3); padding: 0 var(--space-4); height: 60px;
   background: var(--surface-raised); border-bottom: 1px solid var(--border-subtle); }
-.topbar .logo { height: 26px; }
+.topbar .logo { height: 36px; display: block; }
 .spacer { flex: 1; }
 .chip { color: var(--ink-muted); font-size: 13px; }
 .chip b { color: var(--ink); font-weight: 500; }
