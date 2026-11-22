@@ -236,8 +236,11 @@
       const d = curDrive();
       const base = { acct: state.loc.acct, drive: state.loc.drive };
       if (cat.id === 'teams' && d) items.push({ label: d.name, fn: () => go({ ...base, path: '/' }) });
-      let acc = '';
-      for (const seg of state.loc.path.split('/').filter(Boolean)) { acc += '/' + seg; const p = acc; items.push({ label: seg, fn: () => go({ ...base, path: p }) }); }
+      // Inside Photos the chosen folder is the starting point: its path is not shown, only what is below it.
+      const m = cat.id === 'photos' ? mappingOf(state.loc.acct, state.loc.drive) : null;
+      const below = m && state.loc.path.startsWith(m.folder + '/');
+      let acc = below ? m.folder : '';
+      for (const seg of (below ? state.loc.path.slice(m.folder.length) : state.loc.path).split('/').filter(Boolean)) { acc += '/' + seg; const p = acc; items.push({ label: seg, fn: () => go({ ...base, path: p }) }); }
     }
     items.forEach((it, i) => {
       if (i) el.append(h('span', { class: 'sep' }, icon('chevron', 14)));
@@ -349,11 +352,12 @@
     if (id === 'photos' && state.loc) setPhotoView('folders'); // coming up from a folder: show the folders, not the gallery
     state.cat = id; state.loc = null; history.pushState(null, '', hashOf()); load();
   }
+  const isPhotoRoot = (loc) => state.cat === 'photos' && state.mappings.some((m) => m.acct === loc.acct && m.drive === loc.drive && m.folder === (loc.path || '/'));
   function go(loc) {
     const d = driveBy(loc.acct, loc.drive);
     if (state.cat === 'photos') setPhotoView('folders');
     else if (d) state.cat = catOfKind(d.kind);
-    state.loc = { acct: loc.acct, drive: loc.drive, path: loc.path || '/' };
+    state.loc = isPhotoRoot(loc) ? null : { acct: loc.acct, drive: loc.drive, path: loc.path || '/' };
     history.pushState(null, '', hashOf()); load();
   }
   window.addEventListener('popstate', () => { readHash(); load(); });
@@ -363,7 +367,7 @@
     if (d) {
       state.loc = { acct: d.acct, drive: d.id, path: p.get('path') || '/' };
       state.cat = p.get('cat') === 'photos' ? 'photos' : catOfKind(d.kind);
-      if (state.cat === 'photos') state.photoView = 'folders';
+      if (state.cat === 'photos') { state.photoView = 'folders'; if (isPhotoRoot(state.loc)) state.loc = null; }
       return;
     }
     state.loc = null;
@@ -420,8 +424,13 @@
         if (stale()) return;
         state.photos = res; entries = [];
       } else if (state.cat === 'photos') {
-        // Folders view, top level: the folders you chose, one per drive.
-        entries = state.mappings.map((m) => ({ name: baseName(m.folder), path: m.folder, isDir: true, isRoot: true, acct: m.acct, drive: m.drive, vendor: (driveBy(m.acct, m.drive) || {}).vendor }));
+        // Folders view, top level: what is INSIDE the folders you chose (the chosen folders themselves are skipped),
+        // merged across drives. A server that fails is reported and does not hide the others.
+        const res = await Promise.allSettled(state.mappings.map((m) => api('/api/list?' + qs({ acct: m.acct, drive: m.drive, path: m.folder }))
+          .then((r) => r.entries.map((e) => ({ ...e, acct: m.acct, drive: m.drive, vendor: (driveBy(m.acct, m.drive) || {}).vendor, kind: kindOf(e) })))));
+        res.forEach((r, i) => { if (r.status === 'rejected' && r.reason.status !== 401) fail(new Error(state.mappings[i].folder + ': ' + r.reason.message)); });
+        if (stale()) return;
+        entries = res.flatMap((r) => (r.status === 'fulfilled' ? r.value : [])).sort(byName);
       } else {
         entries = await loadCategory(state.cat);
         if (stale()) return;
@@ -459,7 +468,7 @@
     }
     const ro = isRO(it);
     const act = (label, ic, fn) => h('button', { class: 'iconbtn', title: label, 'aria-label': label + ' ' + it.name, onclick: (ev) => { ev.stopPropagation(); fn(); }, disabled: ro }, ic);
-    const actions = it.isRoot ? '' : h('span', { class: 'tact' },
+    const actions = h('span', { class: 'tact' },
       kind === 'dir' ? '' : h('a', { class: 'iconbtn', title: 'Download', 'aria-label': 'Download ' + it.name, href: fileUrl(it), onclick: (ev) => ev.stopPropagation() }, icon('download')),
       act('Rename', icon('pencil'), () => rename(it)), act('Move', icon('move'), () => moveOrCopy(it, 'move')), act('Delete', icon('trash'), () => remove(it)));
     return h('div', { class: 'tile' + (kind === 'dir' ? ' dir' : '') },
@@ -477,7 +486,7 @@
         h('button', { class: 'btn primary', onclick: () => chooseFolder() }, icon('folder'), 'Choose folder…'), note);
     }
     const gallery = !state.loc && state.photoView === 'gallery';
-    const items = gallery ? (state.photos.items || []) : state.entries.filter((e) => e.kind === 'dir' || e.isRoot || state.showAllFiles || kindOf(e) !== 'other');
+    const items = gallery ? (state.photos.items || []) : state.entries.filter((e) => e.kind === 'dir' || state.showAllFiles || kindOf(e) !== 'other');
     if (!items.length) return h('div', { class: 'empty' }, gallery ? 'No pictures or videos in your photo folders yet.' + (state.showAllFiles ? '' : ' Turn on "Show all files" to see everything in them.')
       : 'Nothing here yet.' + (state.showAllFiles ? '' : ' Pictures and videos are shown; turn on "Show all files" to see the rest.') + (canAdd() ? ' Drop files here to upload.' : ''));
     return h('div', {}, h('div', { class: 'grid' }, items.map(tile)),
