@@ -201,7 +201,8 @@ dialog .opt { margin-bottom: var(--space-2); }
 
 /* photos */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
-.tile { position: relative; display: block; aspect-ratio: 1; padding: 0; border: 0; border-radius: var(--radius-sm); overflow: hidden; cursor: pointer; background: var(--hover); }
+.tile { position: relative; display: block; aspect-ratio: 1; border-radius: var(--radius-sm); overflow: hidden; background: var(--hover); }
+.tile .topen { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; display: block; }
 .tile .tmedia { display: block; width: 100%; height: 100%; }
 .tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .tile .tgen { display: grid; place-items: center; width: 100%; height: 100%; color: var(--ink-muted); }
@@ -230,3 +231,18 @@ dialog .opt { margin-bottom: var(--space-2); }
 .mrow .mt b { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mrow .mt small { color: var(--ink-muted); font-size: 12px; }
 .preview video { display: block; max-width: 100%; max-height: 66vh; margin: 0 auto; }
+.tile .tact { position: absolute; top: 6px; right: 6px; z-index: 2; display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, .62); opacity: 0; transition: opacity .12s; }
+.tile:hover .tact, .tile:focus-within .tact { opacity: 1; }
+.tile .tact .iconbtn { width: 26px; height: 26px; color: #fff; text-decoration: none; }
+.tile .tact .iconbtn:hover { background: rgba(255, 255, 255, .2); color: #fff; }
+@media (hover: none) { .tile .tact { opacity: 1; } }
+.tile.dir { background: color-mix(in srgb, var(--accent) 9%, var(--surface-page)); border: 1px solid var(--border-subtle); }
+.tile.dir .tgen { color: var(--accent); }
+.tile.dir .tl { opacity: 1; background: none; color: var(--ink); padding: 0 8px 8px; font-weight: 500; }
+.tile.dir .play { display: none; }
+.seg { display: inline-flex; }
+.seg .btn { border-radius: 0; margin-left: -1px; }
+.seg .btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); margin-left: 0; }
+.seg .btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.seg .btn[aria-pressed=true] { background: var(--selected); border-color: var(--accent); color: var(--accent); position: relative; z-index: 1; }

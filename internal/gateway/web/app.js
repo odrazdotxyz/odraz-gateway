@@ -93,7 +93,8 @@
     { id: 'shared', label: 'Shared', icon: 'share', kinds: ['shared', 'other'] },
   ];
   const state = { me: null, demo: false, oidc: true, backends: [], drives: [], driveErrors: {}, cat: 'personal', loc: null, entries: [], loading: false, lastTarget: null,
-    mappings: [], problems: [], photos: { items: [], truncated: false }, showAllFiles: false, showHidden: false, hiddenCount: 0 };
+    mappings: [], problems: [], photos: { items: [], truncated: false }, showAllFiles: false, showHidden: false, hiddenCount: 0,
+    photoView: localStorage.getItem('photoView') === 'folders' ? 'folders' : 'gallery' };
   const catById = (id) => CATS.find((c) => c.id === id) || CATS[0];
   const catOfKind = (k) => (CATS.find((c) => c.kinds.includes(k)) || CATS[2]).id;
   const drivesOf = (cat) => state.drives.filter((d) => catById(cat).kinds.includes(d.kind));
@@ -107,6 +108,7 @@
   const mappingOf = (acct, drive) => state.mappings.find((m) => m.acct === acct && m.drive === drive);
   const isHidden = (e) => {
     if (e.name.startsWith('.')) return true;
+    if (state.cat === 'photos') return false; // the Photos views show the chosen folders themselves
     const m = mappingOf(e.acct, e.drive);
     return !!(m && m.hideInFiles && e.isDir && e.path === m.folder);
   };
@@ -114,6 +116,15 @@
     state.hiddenCount = entries.filter(isHidden).length;
     return state.showHidden ? entries : entries.filter((e) => !isHidden(e));
   }
+  const IMG_RE = /\.(png|jpe?g|gif|webp|avif|heic|heif|bmp|tiff?|svg)$/i, VID_RE = /\.(mp4|m4v|mov|webm|mkv|avi|3gp|ogv)$/i;
+  const kindOf = (e) => {
+    if (e.isDir) return 'dir';
+    const m = (e.mime || '').split(';')[0];
+    if (m.startsWith('image/') || IMG_RE.test(e.name)) return 'image';
+    if (m.startsWith('video/') || VID_RE.test(e.name)) return 'video';
+    return 'other';
+  };
+  const baseName = (p) => p.slice(p.lastIndexOf('/') + 1) || p;
   const writableDrives = () => state.drives.filter((d) => !d.readOnly && d.kind !== 'shared');
 
   // ---------- api ----------
@@ -268,7 +279,9 @@
 
   // Can files be added here? Inside a folder: unless the space is read-only. At the top of Personal: yes if
   // some personal drive is writable (the page asks which one). Teams and Shared tops only list spaces.
-  const canAdd = () => (state.loc ? !(curDrive() && curDrive().readOnly) : state.cat === 'personal' && writableDrives().some((d) => d.kind === 'personal'));
+  const canAdd = () => (state.loc ? !(curDrive() && curDrive().readOnly)
+    : state.cat === 'photos' ? state.mappings.length > 0
+    : state.cat === 'personal' && writableDrives().some((d) => d.kind === 'personal'));
   const addHint = () => {
     if (state.loc) return curDrive() && curDrive().readOnly ? 'This space is read-only' : '';
     if (state.cat === 'teams') return 'Open a team space to add files';
@@ -287,10 +300,15 @@
     }), h('h2', { class: 'acc' }, 'Accounts'), ...state.backends.map(accountRow));
 
     const fileInput = h('input', { type: 'file', multiple: true, hidden: true, onchange: () => { uploadFiles([...fileInput.files]); fileInput.value = ''; } });
-    const inPhotos = state.cat === 'photos' && !state.loc;
+    const inPhotos = state.cat === 'photos';
     const hiddenHint = state.hiddenCount ? h('span', { class: 'ro' }, state.hiddenCount + ' hidden ', h('button', { class: 'linkbtn', onclick: () => { state.showHidden = !state.showHidden; load(); } }, state.showHidden ? 'Hide again' : 'Show')) : '';
     const toolbar = inPhotos
       ? h('div', { class: 'toolbar' },
+          fileInput, state.mappings.length ? h('button', { class: 'btn primary', disabled: !canAdd(), onclick: () => fileInput.click() }, icon('upload'), 'Upload') : '',
+          state.mappings.length ? h('button', { class: 'btn', disabled: !canAdd(), onclick: newFolder }, icon('folderPlus'), 'New folder') : '',
+          state.mappings.length ? h('span', { class: 'seg', role: 'group', 'aria-label': 'Photos view' },
+            ['gallery', 'folders'].map((v) => h('button', { class: 'btn', 'aria-pressed': String(!state.loc ? state.photoView === v : v === 'folders'), onclick: () => {
+              setPhotoView(v); state.loc = null; history.pushState(null, '', hashOf()); load(); } }, v === 'gallery' ? 'Gallery' : 'Folders'))) : '',
           h('button', { class: 'btn' + (state.mappings.length ? '' : ' primary'), onclick: () => (state.mappings.length ? manageFolders() : chooseFolder()) }, icon('folder'), state.mappings.length ? 'Photo folders' : 'Choose folder…'),
           h('button', { class: 'btn', onclick: () => load() }, icon('refresh'), 'Refresh'),
           state.mappings.length ? h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: state.showAllFiles, onchange: (ev) => { state.showAllFiles = ev.target.checked; load(); } }), 'Show all files') : '')
@@ -324,11 +342,17 @@
   }
 
   // ---------- navigation ----------
-  const hashOf = () => '#' + (state.loc ? qs({ acct: state.loc.acct, drive: state.loc.drive, path: state.loc.path }) : qs({ cat: state.cat }));
-  function openCat(id) { state.cat = id; state.loc = null; history.pushState(null, '', hashOf()); load(); }
+  // Inside Photos the folder you are in is a drive path too, so the hash says cat=photos to keep you there.
+  const hashOf = () => '#' + (state.loc ? qs({ ...(state.cat === 'photos' ? { cat: 'photos' } : {}), acct: state.loc.acct, drive: state.loc.drive, path: state.loc.path }) : qs({ cat: state.cat }));
+  const setPhotoView = (v) => { state.photoView = v; localStorage.setItem('photoView', v); };
+  function openCat(id) {
+    if (id === 'photos' && state.loc) setPhotoView('folders'); // coming up from a folder: show the folders, not the gallery
+    state.cat = id; state.loc = null; history.pushState(null, '', hashOf()); load();
+  }
   function go(loc) {
     const d = driveBy(loc.acct, loc.drive);
-    if (d) state.cat = catOfKind(d.kind);
+    if (state.cat === 'photos') setPhotoView('folders');
+    else if (d) state.cat = catOfKind(d.kind);
     state.loc = { acct: loc.acct, drive: loc.drive, path: loc.path || '/' };
     history.pushState(null, '', hashOf()); load();
   }
@@ -336,7 +360,12 @@
   function readHash() {
     const p = new URLSearchParams(location.hash.slice(1));
     const d = driveBy(p.get('acct'), p.get('drive'));
-    if (d) { state.loc = { acct: d.acct, drive: d.id, path: p.get('path') || '/' }; state.cat = catOfKind(d.kind); return; }
+    if (d) {
+      state.loc = { acct: d.acct, drive: d.id, path: p.get('path') || '/' };
+      state.cat = p.get('cat') === 'photos' ? 'photos' : catOfKind(d.kind);
+      if (state.cat === 'photos') state.photoView = 'folders';
+      return;
+    }
     state.loc = null;
     state.cat = CATS.some((c) => c.id === p.get('cat')) ? p.get('cat') : 'personal';
   }
@@ -385,10 +414,14 @@
         if (stale()) return;
         const vendor = (driveBy(acct, dv) || {}).vendor;
         state.loc.path = res.path; entries = res.entries.map((e) => ({ ...e, acct, drive: dv, vendor }));
-      } else if (state.cat === 'photos') {
-        const res = await loadPhotos();
+        if (state.cat === 'photos') entries = entries.map((e) => ({ ...e, kind: kindOf(e) }));
+      } else if (state.cat === 'photos' && state.photoView === 'gallery') {
+        const res = state.mappings.length ? await loadPhotos() : { items: [], truncated: false };
         if (stale()) return;
         state.photos = res; entries = [];
+      } else if (state.cat === 'photos') {
+        // Folders view, top level: the folders you chose, one per drive.
+        entries = state.mappings.map((m) => ({ name: baseName(m.folder), path: m.folder, isDir: true, isRoot: true, acct: m.acct, drive: m.drive, vendor: (driveBy(m.acct, m.drive) || {}).vendor }));
       } else {
         entries = await loadCategory(state.cat);
         if (stale()) return;
@@ -407,22 +440,32 @@
   // ---------- Photos ----------
   const thumbUrl = (it, size = 256) => '/api/thumb?' + qs(at(it, { path: it.path, size }));
 
+  // One tile: a picture or video (thumbnail), a folder (Folders view), or another file ("Show all files").
+  // Hover or keyboard focus shows its actions: download, rename, move, delete.
   function tile(it) {
+    const kind = it.kind || kindOf(it);
     const frame = h('span', { class: 'tmedia' });
-    const generic = () => { frame.replaceChildren(h('span', { class: 'tgen' }, icon(it.kind === 'video' ? 'film' : it.kind === 'other' ? 'file' : 'image', 28))); };
-    if (it.kind === 'other') generic();
+    const generic = (ic) => frame.replaceChildren(h('span', { class: 'tgen' }, icon(ic, 28)));
+    if (kind === 'dir') generic('folder');
+    else if (kind === 'other') generic('file');
     else {
       const img = h('img', { alt: '', loading: 'lazy', src: thumbUrl(it) });
       // The server renders thumbnails. If it has none for this file (HTTP 501), a picture falls back to the
       // original (shown scaled down by the browser); anything else gets a plain tile.
       img.onerror = () => {
-        if (it.kind === 'image' && !img.dataset.fallback) { img.dataset.fallback = '1'; img.src = fileUrl(it, { inline: 1 }); } else generic();
+        if (kind === 'image' && !img.dataset.fallback) { img.dataset.fallback = '1'; img.src = fileUrl(it, { inline: 1 }); } else generic(kind === 'video' ? 'film' : 'image');
       };
       frame.append(img);
     }
-    return h('button', { class: 'tile', title: it.name + (it.vendor ? ' · ' + vendorName(it.vendor) : ''), onclick: () => (it.kind === 'other' ? preview(it) : preview(it)) },
-      frame, it.kind === 'video' ? h('span', { class: 'play' }, icon('play', 14)) : '',
-      h('span', { class: 'tl' }, it.name), it.vendor ? h('span', { class: 'vb-corner' }, vbadge(it.vendor, 14)) : '');
+    const ro = isRO(it);
+    const act = (label, ic, fn) => h('button', { class: 'iconbtn', title: label, 'aria-label': label + ' ' + it.name, onclick: (ev) => { ev.stopPropagation(); fn(); }, disabled: ro }, ic);
+    const actions = it.isRoot ? '' : h('span', { class: 'tact' },
+      kind === 'dir' ? '' : h('a', { class: 'iconbtn', title: 'Download', 'aria-label': 'Download ' + it.name, href: fileUrl(it), onclick: (ev) => ev.stopPropagation() }, icon('download')),
+      act('Rename', icon('pencil'), () => rename(it)), act('Move', icon('move'), () => moveOrCopy(it, 'move')), act('Delete', icon('trash'), () => remove(it)));
+    return h('div', { class: 'tile' + (kind === 'dir' ? ' dir' : '') },
+      h('button', { class: 'topen', title: it.name + (it.vendor ? ' · ' + vendorName(it.vendor) : ''), onclick: () => (kind === 'dir' ? go({ acct: it.acct, drive: it.drive, path: it.path }) : preview(it)) },
+        frame, kind === 'video' ? h('span', { class: 'play' }, icon('play', 14)) : '', h('span', { class: 'tl' }, it.name)),
+      actions, it.vendor ? h('span', { class: 'vb-corner' }, vbadge(it.vendor, 14)) : '');
   }
 
   function photosView() {
@@ -431,12 +474,14 @@
       return h('div', { class: 'prompt' }, h('div', { class: 'pic' }, icon('image', 28)),
         h('h2', {}, 'Choose your photos folder'),
         h('p', {}, 'Pick the folder where your pictures and videos live. Photos then shows just the pictures and videos from it, from every server you have connected. Nothing is moved or renamed.'),
-        h('button', { class: 'btn primary', onclick: chooseFolder }, icon('folder'), 'Choose folder…'), note);
+        h('button', { class: 'btn primary', onclick: () => chooseFolder() }, icon('folder'), 'Choose folder…'), note);
     }
-    const items = state.photos.items || [];
-    if (!items.length) return h('div', { class: 'empty' }, 'No pictures or videos in your photo folders yet.' + (state.showAllFiles ? '' : ' Turn on "Show all files" to see everything in them.'));
+    const gallery = !state.loc && state.photoView === 'gallery';
+    const items = gallery ? (state.photos.items || []) : state.entries.filter((e) => e.kind === 'dir' || e.isRoot || state.showAllFiles || kindOf(e) !== 'other');
+    if (!items.length) return h('div', { class: 'empty' }, gallery ? 'No pictures or videos in your photo folders yet.' + (state.showAllFiles ? '' : ' Turn on "Show all files" to see everything in them.')
+      : 'Nothing here yet.' + (state.showAllFiles ? '' : ' Pictures and videos are shown; turn on "Show all files" to see the rest.') + (canAdd() ? ' Drop files here to upload.' : ''));
     return h('div', {}, h('div', { class: 'grid' }, items.map(tile)),
-      state.photos.truncated ? h('p', { class: 'meta' }, 'Showing the first ' + items.length + ' items.') : '');
+      gallery && state.photos.truncated ? h('p', { class: 'meta' }, 'Showing the first ' + items.length + ' items.') : '');
   }
 
   // Pick a folder in a drive: browse its folders, choose one. The choice is written to that drive's manifest.
@@ -520,6 +565,13 @@
   // Where an upload / new folder goes: inside the open folder, or (at the top of Personal) the drive you pick.
   async function pickTarget(title) {
     if (state.loc) return { acct: state.loc.acct, drive: state.loc.drive, dir: state.loc.path };
+    if (state.cat === 'photos') { // at the top of Photos: one of the folders you chose
+      const ms = state.mappings.filter((m) => driveBy(m.acct, m.drive));
+      if (!ms.length) return null;
+      const d = ms.length === 1 ? driveBy(ms[0].acct, ms[0].drive) : await chooseDrive(title, ms.map((m) => driveBy(m.acct, m.drive)));
+      const m = d && ms.find((x) => x.acct === d.acct && x.drive === d.id);
+      return m ? { acct: m.acct, drive: m.drive, dir: m.folder } : null;
+    }
     const ds = writableDrives().filter((d) => d.kind === 'personal');
     if (!ds.length) return null;
     const d = ds.length === 1 ? ds[0] : await chooseDrive(title, ds, state.lastTarget);
