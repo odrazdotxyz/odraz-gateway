@@ -189,12 +189,19 @@ func (s *Server) signInPassword(ctx context.Context, sess *session, be Backend, 
 	return s.connect(ctx, sess, be, acc, authMethod(be), username)
 }
 
-// POST /auth/disconnect?backend=id: forget one backend; the others stay connected.
+// POST /auth/disconnect?backend=id: forget one backend (and the tokens held for it); the others stay
+// connected. Disconnecting the last one ends the session, so this is also how a user signs out.
 func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 	if sess := s.lookup(r); sess != nil {
+		id := r.URL.Query().Get("backend")
 		sess.mu.Lock()
-		delete(sess.accts, r.URL.Query().Get("backend"))
+		delete(sess.accts, id)
+		left := len(sess.accts)
 		sess.mu.Unlock()
+		_ = sess.store.Delete(r.Context(), id)
+		if left == 0 {
+			s.dropSession(w, r)
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

@@ -346,9 +346,10 @@
 
   function accountButton(b) {
     const open = state.acctMenu === b.id;
-    const run = async (fn) => { state.acctMenu = null; try { await fn(); await boot(); } catch (e) { fail(e); render(); } };
+    const run = async (fn) => { state.acctMenu = null; try { await fn(); delete state.avatars[b.id]; clearSel(); await boot(); } catch (e) { fail(e); render(); } };
+    // Disconnecting the last server is signing out: boot() finds nobody signed in and shows the login page.
     const action = b.connected
-      ? h('button', { class: 'mi', role: 'menuitem', onclick: () => run(() => api('/auth/disconnect?' + qs({ backend: b.id }), { method: 'POST' })) }, icon('unplug', 16), 'Disconnect')
+      ? h('button', { class: 'mi', role: 'menuitem', onclick: () => run(() => api('/auth/disconnect?' + qs({ backend: b.id }), { method: 'POST' })) }, icon('unplug', 16), state.backends.filter((x) => x.connected).length === 1 ? 'Disconnect and sign out' : 'Disconnect')
       : b.oidc ? h('a', { class: 'mi', role: 'menuitem', href: '/auth/login?' + qs({ backend: b.id }) }, icon('plug', 16), 'Connect')
       : b.demo ? h('button', { class: 'mi', role: 'menuitem', onclick: () => run(() => api('/auth/demo?' + qs({ backend: b.id }), { method: 'POST' })) }, icon('plug', 16), 'Connect')
       : h('span', { class: 'mi off' }, 'Not available to connect here');
@@ -401,8 +402,7 @@
       h('header', { class: 'topbar' }, logo('logo'), h('div', { class: 'spacer' }),
         ...state.backends.map(accountButton),
         themeBtn(), h('button', { class: 'iconbtn theme' + (state.settings ? ' active' : ''), title: 'Settings', 'aria-label': 'Settings', 'aria-pressed': String(state.settings),
-          onclick: () => (state.settings ? openCat(state.cat) : openSettingsPage()) }, icon('settings', 18)),
-        h('button', { class: 'btn small', onclick: signOut }, 'Sign out')),
+          onclick: () => (state.settings ? openCat(state.cat) : openSettingsPage()) }, icon('settings', 18))),
       h('div', { class: 'layout' }, side, main));
   }
 
@@ -915,10 +915,6 @@
     main.addEventListener('drop', (e) => { if (!e.dataTransfer?.files.length) return; e.preventDefault(); hide(); uploadFiles([...e.dataTransfer.files]); });
   }
 
-  async function signOut() {
-    try { await api('/auth/logout', { method: 'POST' }); } catch { /* already gone */ }
-    clearSel(); state.me = null; state.drives = []; state.loc = null; history.replaceState(null, '', '/'); render();
-  }
 
   // ---------- start ----------
   async function boot() {
