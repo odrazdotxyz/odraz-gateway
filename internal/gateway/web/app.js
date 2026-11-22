@@ -243,7 +243,7 @@
     if (c.id === 'photos') return state.mappings.length ? state.mappings.length + (state.mappings.length === 1 ? ' folder' : ' folders') : 'Choose a folder';
     const ds = drivesOf(c.id);
     if (!ds.length) return 'Nothing connected';
-    if (c.id === 'personal') { const u = ds.reduce((n, d) => n + (d.used || 0), 0); return u ? fmtSize(u) + ' used' : 'Your files'; }
+    if (c.id === 'personal') return 'Your files';
     if (c.id === 'teams') return ds.length + (ds.length === 1 ? ' space' : ' spaces');
     return 'Shared with you';
   };
@@ -368,12 +368,30 @@
         action) : '');
   }
 
+  // ---------- storage usage ----------
+  const fmtPct = (p) => (p < 0.1 ? '<0.1%' : p < 10 ? p.toFixed(1) + '%' : Math.round(p) + '%');
+  // The bottom of the side panel: how much of each connected server's personal space is used, with a bar, the
+  // amount used, the total available and the percentage. A server with no limit has no bar to fill.
+  function usageView() {
+    const rows = state.backends.filter((b) => b.connected)
+      .map((b) => ({ b, d: state.drives.find((x) => x.acct === b.id && x.kind === 'personal') })).filter((r) => r.d && r.d.used != null);
+    if (!rows.length) return '';
+    return h('div', { class: 'usage' }, h('h2', {}, 'Storage'), ...rows.map(({ b, d }) => {
+      const pct = d.total ? Math.min(100, (d.used / d.total) * 100) : null;
+      const level = pct == null ? '' : pct >= 90 ? ' crit' : pct >= 75 ? ' warn' : '';
+      return h('div', { class: 'urow' },
+        h('div', { class: 'uhead' }, h('span', { class: 'un' }, vendorName(b.vendor)), h('span', { class: 'up' }, pct == null ? 'No limit' : fmtPct((d.used / d.total) * 100))),
+        pct == null ? '' : h('div', { class: 'ubar' + level, role: 'progressbar', 'aria-label': vendorName(b.vendor) + ' storage used', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(pct)) }, h('i', { style: 'width:' + pct + '%' })),
+        h('small', {}, pct == null ? fmtSize(d.used) + ' used' : fmtSize(d.used) + ' of ' + fmtSize(d.total)));
+    }));
+  }
+
   function appView() {
     const side = h('aside', {}, h('h2', {}, 'Library'), ...CATS.map((c) => {
       return h('button', { class: 'drive', 'aria-current': c.id === state.cat && !state.settings ? 'true' : 'false', onclick: () => openCat(c.id) },
         h('span', { class: 'dn' }, icon(c.icon), c.label),
         h('small', {}, catSummary(c)));
-    }));
+    }), usageView());
 
     const inPhotos = state.cat === 'photos';
     const fileInput = h('input', { type: 'file', multiple: true, hidden: true, accept: inPhotos ? 'image/*,video/*' : null, onchange: () => { uploadFiles([...fileInput.files]); fileInput.value = ''; } });
@@ -473,6 +491,11 @@
     Object.entries(res.errors || {}).forEach(([k, v]) => fail(new Error(k + ': ' + v)));
     return res;
   }
+  const sortDrives = (ds) => ds.sort((a, b) => a.name.localeCompare(b.name) || a.vendor.localeCompare(b.vendor));
+  // The numbers in the usage bar change when files are added or removed: ask the servers again (quietly).
+  async function refreshDrives() {
+    try { const res = await api('/api/drives'); state.drives = sortDrives(res.drives); if (state.me) render(); } catch { /* the bar just keeps its old numbers */ }
+  }
   async function refreshMappings() {
     try {
       const res = await api('/api/photos/config');
@@ -571,7 +594,7 @@
     if (r.ok || r.skipped) toast(verb + ' ' + noun(r.ok) + (r.skipped ? ' (' + r.skipped + ' skipped: the name already exists there)' : ''));
     r.failed.slice(0, 3).forEach((m) => fail(new Error(m)));
     if (r.failed.length > 3) fail(new Error('…and ' + (r.failed.length - 3) + ' more failed'));
-    load();
+    load(); refreshDrives();
   }
 
   async function batchDelete() {
@@ -855,13 +878,13 @@
     try {
       await api('/api/' + kind + '?' + qs(at(e, { from: e.path, to: dest.path, ...(cross ? { toAcct: dest.acct, toDrive: dest.drive } : {}) })), { method: 'POST' });
       const d = driveBy(dest.acct, dest.drive);
-      toast((kind === 'move' ? 'Moved' : 'Copied') + ' to ' + (cross && d ? driveLabel(d) + ' ' : '') + dest.path); load();
+      toast((kind === 'move' ? 'Moved' : 'Copied') + ' to ' + (cross && d ? driveLabel(d) + ' ' : '') + dest.path); load(); refreshDrives();
     } catch (x) { fail(x.code === 'exists' ? new Error('Something already exists at ' + dest.path + '.') : x); }
   }
 
   async function remove(e) {
     if (!(await confirmBox('Delete ' + (e.isDir ? 'folder' : 'file') + '?', '“' + e.name + '”' + (e.isDir ? ' and everything in it' : '') + ' will be deleted.', 'Delete', true))) return;
-    try { await api('/api/entry?' + qs(at(e, { path: e.path, recursive: 1 })), { method: 'DELETE' }); toast('Deleted ' + e.name); load(); } catch (x) { fail(x); }
+    try { await api('/api/entry?' + qs(at(e, { path: e.path, recursive: 1 })), { method: 'DELETE' }); toast('Deleted ' + e.name); load(); refreshDrives(); } catch (x) { fail(x); }
   }
 
   // ---------- upload ----------
@@ -906,7 +929,7 @@
     }
     setTimeout(() => { panel.replaceChildren(); panel.hidden = true; }, 1200);
     if (ok) toast('Uploaded ' + ok + (ok === 1 ? ' file' : ' files'));
-    load();
+    load(); refreshDrives();
   }
 
   function wireDrop(main) {
@@ -927,7 +950,7 @@
       if (!me.authenticated) { state.me = null; return render(); }
       state.me = me;
       const res = await api('/api/drives');
-      state.drives = res.drives.sort((a, b) => a.name.localeCompare(b.name) || a.vendor.localeCompare(b.vendor));
+      state.drives = sortDrives(res.drives);
       Object.entries(res.errors || {}).forEach(([k, v]) => fail(new Error(k + ': ' + v)));
       await refreshMappings();
       readHash();
