@@ -171,7 +171,6 @@ dialog input[type=text] { width: 100%; }
 .name .ic { position: relative; }
 .vb-corner { position: absolute; right: -5px; bottom: -4px; line-height: 0; border-radius: 50%; box-shadow: 0 0 0 2px var(--surface-page); }
 tr:hover .vb-corner { box-shadow: 0 0 0 2px color-mix(in srgb, var(--surface-page), var(--ink) 4.5%); }
-.vbs { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: -2px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; }
 .where { display: inline-flex; align-items: center; gap: 6px; margin-left: var(--space-3); padding: 2px 8px 2px 6px; border-radius: var(--radius-pill);
   border: 1px solid var(--border-subtle); color: var(--ink-muted); font-size: 12px; }

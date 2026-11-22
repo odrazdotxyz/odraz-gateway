@@ -370,12 +370,9 @@
 
   function appView() {
     const side = h('aside', {}, h('h2', {}, 'Library'), ...CATS.map((c) => {
-      const vendors = c.id === 'photos'
-        ? [...new Set(state.mappings.map((m) => (driveBy(m.acct, m.drive) || {}).vendor).filter(Boolean))]
-        : [...new Set(drivesOf(c.id).map((d) => d.vendor))];
       return h('button', { class: 'drive', 'aria-current': c.id === state.cat && !state.settings ? 'true' : 'false', onclick: () => openCat(c.id) },
         h('span', { class: 'dn' }, icon(c.icon), c.label),
-        h('small', {}, catSummary(c), h('span', { class: 'vbs' }, vendors.map((v) => vbadge(v, 12)))));
+        h('small', {}, catSummary(c)));
     }));
 
     const inPhotos = state.cat === 'photos';
