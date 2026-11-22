@@ -98,6 +98,7 @@
   const state = { me: null, demo: false, oidc: true, backends: [], drives: [], driveErrors: {}, cat: 'personal', loc: null, entries: [], loading: false, lastTarget: null,
     mappings: [], problems: [], photos: { items: [], truncated: false }, showHidden: false, hiddenCount: 0,
     menuOpen: false, // the "New" menu
+    navOpen: (() => { try { return { drives: true, photos: true, ...JSON.parse(localStorage.getItem('navOpen') || '{}') }; } catch { return { drives: true, photos: true }; } })(), // which side-panel menus are open
     acctMenu: null, // id of the server whose top-bar menu is open
     avatars: {}, // per server: 'ok' | 'none' (so a missing avatar is asked for once, not on every redraw)
     settings: false, // the Settings page is showing
@@ -368,6 +369,35 @@
         action) : '');
   }
 
+  // ---------- the side panel: two menus ----------
+  // "Drives" (the odrive icon): Personal, Teams, Shared. "Photos" (the ogram icon): Gallery and Folders. Each opens
+  // and closes; the choice is remembered.
+  function toggleNav(id) { state.navOpen[id] = !state.navOpen[id]; localStorage.setItem('navOpen', JSON.stringify(state.navOpen)); render(); }
+
+  function navGroup(id, label, logo, items, hasActive) {
+    const open = state.navOpen[id] !== false;
+    return h('div', { class: 'ngroup' + (hasActive ? ' has-active' : '') },
+      h('button', { class: 'nhead', 'aria-expanded': String(open), 'aria-controls': 'nav-' + id, onclick: () => toggleNav(id) },
+        h('img', { class: 'nlogo', src: logo, alt: '', width: 20, height: 20 }), h('span', { class: 'nl' }, label), icon('chevronDown', 14)),
+      open ? h('div', { class: 'nitems', id: 'nav-' + id, role: 'group', 'aria-label': label }, ...items) : '');
+  }
+
+  function navView() {
+    const inFiles = !state.settings;
+    const item = (on, ic, label, sub, fn) => h('button', { class: 'drive', 'aria-current': on ? 'true' : 'false', onclick: fn },
+      h('span', { class: 'dn' }, icon(ic), label), sub ? h('small', {}, sub) : '');
+    const drives = ['personal', 'teams', 'shared'].map((id) => { const c = catById(id); return item(inFiles && state.cat === id, c.icon, c.label, catSummary(c), () => openCat(id)); });
+    const inPhotos = inFiles && state.cat === 'photos';
+    const galleryOn = inPhotos && !state.loc && state.photoView === 'gallery';
+    const foldersOn = inPhotos && !galleryOn;
+    const showPhotos = (view) => { state.loc = null; setPhotoView(view); openCat('photos'); };
+    return h('nav', { class: 'sidenav', 'aria-label': 'Library' },
+      navGroup('drives', 'Drives', '/assets/favicon.svg', drives, inFiles && state.cat !== 'photos'),
+      navGroup('photos', 'Photos', '/assets/ogram-favicon.svg', [
+        item(galleryOn, 'image', 'Gallery', catSummary(catById('photos')), () => showPhotos('gallery')),
+        item(foldersOn, 'folder', 'Folders', '', () => showPhotos('folders'))], inPhotos));
+  }
+
   // ---------- storage usage ----------
   const fmtPct = (p) => (p < 0.1 ? '<0.1%' : p < 10 ? p.toFixed(1) + '%' : Math.round(p) + '%');
   // The bottom of the side panel: how much of each connected server's personal space is used, with a bar, the
@@ -387,11 +417,7 @@
   }
 
   function appView() {
-    const side = h('aside', {}, h('h2', {}, 'Library'), ...CATS.map((c) => {
-      return h('button', { class: 'drive', 'aria-current': c.id === state.cat && !state.settings ? 'true' : 'false', onclick: () => openCat(c.id) },
-        h('span', { class: 'dn' }, icon(c.icon), c.label),
-        h('small', {}, catSummary(c)));
-    }), usageView());
+    const side = h('aside', {}, navView(), usageView());
 
     const inPhotos = state.cat === 'photos';
     const fileInput = h('input', { type: 'file', multiple: true, hidden: true, accept: inPhotos ? 'image/*,video/*' : null, onchange: () => { uploadFiles([...fileInput.files]); fileInput.value = ''; } });
