@@ -341,6 +341,40 @@ func parseRange(h string, size int64) (start, length int64, partial, ok bool) {
 	}
 }
 
+// thumbTypes are the image types a thumbnail may have; anything else is treated as "no thumbnail" so a
+// misbehaving server cannot make us serve active content from our origin.
+var thumbTypes = map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true}
+
+// GET /api/thumb?acct=&drive=&path=&size=N: a thumbnail rendered by the file's own server (OpenCloud,
+// Nextcloud), at most size x size pixels. Where the server has none (the file type, or a backend without
+// thumbnails) the answer is 501 and the page falls back to the original.
+func (s *Server) handleThumb(w http.ResponseWriter, r *http.Request, sess *session) {
+	fs, err := s.fsFor(r, sess)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
+	if size <= 0 {
+		size = 256
+	}
+	size = min(max(size, 16), 1024)
+	rc, ct, err := files.Preview(r.Context(), fs, r.URL.Query().Get("path"), size, size)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer rc.Close()
+	base, _, _ := strings.Cut(ct, ";")
+	if !thumbTypes[strings.TrimSpace(strings.ToLower(base))] {
+		writeError(w, fmt.Errorf("no thumbnail for this file: %w", odraz.ErrUnsupported))
+		return
+	}
+	w.Header().Set("Content-Type", base)
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	_, _ = io.Copy(w, rc)
+}
+
 // PUT /api/file?drive=&path=&overwrite=1 with the raw file as the body. files.Upload creates
 // missing parent folders and refuses to replace an existing file unless overwrite is set.
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request, sess *session) {

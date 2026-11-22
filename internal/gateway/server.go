@@ -95,6 +95,7 @@ func New(cfg Config) *Server {
 	s.mux.HandleFunc("GET /api/drives", s.authed(s.handleDrives))
 	s.mux.HandleFunc("GET /api/list", s.authed(s.handleList))
 	s.mux.HandleFunc("GET /api/file", s.authed(s.handleDownload))
+	s.mux.HandleFunc("GET /api/thumb", s.authed(s.handleThumb))
 	s.mux.HandleFunc("PUT /api/file", s.csrf(s.authed(s.handleUpload)))
 	s.mux.HandleFunc("POST /api/mkdir", s.csrf(s.authed(s.handleMkdir)))
 	s.mux.HandleFunc("POST /api/move", s.csrf(s.authed(s.handleMove)))
