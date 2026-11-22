@@ -56,6 +56,9 @@
     film: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>',
     play: '<polygon points="6 3 20 12 6 21 6 3"/>',
     eyeOff: '<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/>',
+    settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+    chevronDown: '<path d="m6 9 6 6 6-6"/>',
     plug: '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
     unplug: '<path d="m19 5 3-3"/><path d="m2 22 3-3"/><path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"/><path d="M7.5 13.5 10 11"/><path d="M10.5 16.5 13 14"/><path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z"/>',
   };
@@ -94,6 +97,7 @@
   ];
   const state = { me: null, demo: false, oidc: true, backends: [], drives: [], driveErrors: {}, cat: 'personal', loc: null, entries: [], loading: false, lastTarget: null,
     mappings: [], problems: [], photos: { items: [], truncated: false }, showAllFiles: false, showHidden: false, hiddenCount: 0,
+    menuOpen: false, // the "New" menu
     sel: new Map(), anchor: null, // the selected files and folders, by key; the last one clicked (for shift-click ranges)
     photoView: localStorage.getItem('photoView') === 'folders' ? 'folders' : 'gallery' };
   const catById = (id) => CATS.find((c) => c.id === id) || CATS[0];
@@ -209,7 +213,10 @@
   }
   function selectAll() { for (const x of shownItems()) state.sel.set(selKey(x), x); render(); }
   const selectedList = () => [...state.sel.values()];
-  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && state.sel.size && !dlg.open) { clearSel(); render(); } });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape' || dlg.open) return;
+    if (state.menuOpen) { state.menuOpen = false; render(); } else if (state.sel.size) { clearSel(); render(); }
+  });
 
   // ---------- views ----------
   function loginView() {
@@ -238,14 +245,16 @@
     return 'Shared with you';
   };
 
-  function accountRow(b) {
+  // One connected (or connectable) server. `after` runs once an action has changed things (the settings panel
+  // uses it to redraw itself).
+  function accountRow(b, after = () => {}) {
     const personal = state.drives.find((d) => d.acct === b.id && d.kind === 'personal');
+    const run = async (fn) => { try { await fn(); await boot(); after(); } catch (e) { fail(e); } };
     const act = b.connected
-      ? h('button', { class: 'iconbtn', title: 'Disconnect ' + vendorName(b.vendor), 'aria-label': 'Disconnect ' + vendorName(b.vendor), onclick: async () => {
-          try { await api('/auth/disconnect?' + qs({ backend: b.id }), { method: 'POST' }); await boot(); } catch (e) { fail(e); } } }, icon('unplug'))
+      ? h('button', { class: 'btn small', title: 'Disconnect ' + vendorName(b.vendor), onclick: () => run(() => api('/auth/disconnect?' + qs({ backend: b.id }), { method: 'POST' })) }, icon('unplug'), 'Disconnect')
       : b.oidc
         ? h('a', { class: 'btn small', href: '/auth/login?' + qs({ backend: b.id }) }, 'Connect')
-        : b.demo ? h('button', { class: 'btn small', onclick: async () => { try { await api('/auth/demo?' + qs({ backend: b.id }), { method: 'POST' }); await boot(); } catch (e) { fail(e); } } }, 'Connect') : '';
+        : b.demo ? h('button', { class: 'btn small', onclick: () => run(() => api('/auth/demo?' + qs({ backend: b.id }), { method: 'POST' })) }, 'Connect') : '';
     return h('div', { class: 'acct' + (b.connected ? '' : ' off') }, vbadge(b.vendor, 18),
       h('div', { class: 'at' }, h('b', {}, vendorName(b.vendor)), h('small', {}, b.connected ? (b.user || 'connected') + (personal && personal.used != null ? ' · ' + fmtSize(personal.used) : '') : 'not connected')), act);
   }
@@ -315,6 +324,20 @@
     return '';
   };
 
+  // "+ New": one button for what you can add here. Photos only talks about pictures and videos.
+  function newMenu(fileInput, inPhotos) {
+    const close = () => { state.menuOpen = false; render(); };
+    const item = (label, ic, fn) => h('button', { class: 'mi', role: 'menuitem', onclick: (ev) => { ev.stopPropagation(); fn(); } }, icon(ic, 16), label);
+    return h('span', { class: 'newmenu' },
+      h('button', { class: 'btn primary', disabled: !canAdd(), 'aria-haspopup': 'menu', 'aria-expanded': String(state.menuOpen && canAdd()),
+        onclick: (ev) => { ev.stopPropagation(); state.menuOpen = !state.menuOpen; render(); } }, icon('plus'), 'New', icon('chevronDown', 14)),
+      state.menuOpen && canAdd() ? h('div', { class: 'menu', role: 'menu' },
+        item('New folder', 'folderPlus', () => { close(); newFolder(); }),
+        // click first: render() replaces the page, and the picker must open from this very click
+        item(inPhotos ? 'Upload pictures and videos' : 'Upload files', 'upload', () => { fileInput.click(); close(); })) : '');
+  }
+  document.addEventListener('click', (ev) => { if (state.menuOpen && !ev.target.closest('.newmenu')) { state.menuOpen = false; render(); } });
+
   function appView() {
     const side = h('aside', {}, h('h2', {}, 'Library'), ...CATS.map((c) => {
       const vendors = c.id === 'photos'
@@ -323,26 +346,23 @@
       return h('button', { class: 'drive', 'aria-current': c.id === state.cat ? 'true' : 'false', onclick: () => openCat(c.id) },
         h('span', { class: 'dn' }, icon(c.icon), c.label),
         h('small', {}, catSummary(c), h('span', { class: 'vbs' }, vendors.map((v) => vbadge(v, 12)))));
-    }), h('h2', { class: 'acc' }, 'Accounts'), ...state.backends.map(accountRow));
+    }));
 
-    const fileInput = h('input', { type: 'file', multiple: true, hidden: true, onchange: () => { uploadFiles([...fileInput.files]); fileInput.value = ''; } });
     const inPhotos = state.cat === 'photos';
+    const fileInput = h('input', { type: 'file', multiple: true, hidden: true, accept: inPhotos ? 'image/*,video/*' : null, onchange: () => { uploadFiles([...fileInput.files]); fileInput.value = ''; } });
     const hiddenHint = state.hiddenCount ? h('span', { class: 'ro' }, state.hiddenCount + ' hidden ', h('button', { class: 'linkbtn', onclick: () => { state.showHidden = !state.showHidden; load(); } }, state.showHidden ? 'Hide again' : 'Show')) : '';
+    // Photos: just New and the Gallery | Folders switch, centred. Where the Photos folders are chosen lives in Settings.
     const normalBar = inPhotos
-      ? h('div', { class: 'toolbar' },
-          fileInput, state.mappings.length ? h('button', { class: 'btn primary', disabled: !canAdd(), onclick: () => fileInput.click() }, icon('upload'), 'Upload') : '',
-          state.mappings.length ? h('button', { class: 'btn', disabled: !canAdd(), onclick: newFolder }, icon('folderPlus'), 'New folder') : '',
+      ? h('div', { class: 'toolbar photobar' }, fileInput,
+          state.mappings.length ? newMenu(fileInput, true) : h('span', {}),
           state.mappings.length ? h('span', { class: 'seg', role: 'group', 'aria-label': 'Photos view' },
             ['gallery', 'folders'].map((v) => h('button', { class: 'btn', 'aria-pressed': String(!state.loc ? state.photoView === v : v === 'folders'), onclick: () => {
-              clearSel(); setPhotoView(v); state.loc = null; history.pushState(null, '', hashOf()); load(); } }, v === 'gallery' ? 'Gallery' : 'Folders'))) : '',
-          h('button', { class: 'btn' + (state.mappings.length ? '' : ' primary'), onclick: () => (state.mappings.length ? manageFolders() : chooseFolder()) }, icon('folder'), state.mappings.length ? 'Photo folders' : 'Choose folder…'),
-          h('button', { class: 'btn', onclick: () => load() }, icon('refresh'), 'Refresh'),
-          state.mappings.length ? h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: state.showAllFiles, onchange: (ev) => { state.showAllFiles = ev.target.checked; load(); } }), 'Show all files') : '')
-      : h('div', { class: 'toolbar' },
-          h('button', { class: 'btn primary', disabled: !canAdd(), onclick: () => fileInput.click() }, icon('upload'), 'Upload'), fileInput,
-          h('button', { class: 'btn', disabled: !canAdd(), onclick: newFolder }, icon('folderPlus'), 'New folder'),
-          h('button', { class: 'btn', onclick: () => load() }, icon('refresh'), 'Refresh'),
-          addHint() ? h('span', { class: 'ro' }, addHint()) : '', hiddenHint);
+              clearSel(); setPhotoView(v); state.loc = null; history.pushState(null, '', hashOf()); load(); } }, v === 'gallery' ? 'Gallery' : 'Folders'))) : h('span', {}),
+          h('span', {}))
+      : h('div', { class: 'toolbar' }, fileInput, newMenu(fileInput, false),
+          addHint() ? h('span', { class: 'ro' }, addHint()) : '', hiddenHint,
+          h('span', { class: 'spacer' }),
+          h('button', { class: 'iconbtn', title: 'Refresh', 'aria-label': 'Refresh', onclick: () => load() }, icon('refresh')));
     const toolbar = state.sel.size ? selBar() : normalBar;
 
     const body = state.loading ? h('div', { class: 'empty' }, 'Loading…')
@@ -358,7 +378,8 @@
     return h('div', { class: 'shell' },
       h('header', { class: 'topbar' }, logo('logo'), h('div', { class: 'spacer' }),
         h('span', { class: 'chip' }, 'Signed in ', ...who.flatMap((b) => [vbadge(b.vendor, 14), h('b', {}, b.user || vendorName(b.vendor)), ' '])),
-        themeBtn(), h('button', { class: 'btn small', onclick: signOut }, 'Sign out')),
+        themeBtn(), h('button', { class: 'iconbtn theme', title: 'Settings', 'aria-label': 'Settings', onclick: () => openSettings() }, icon('settings', 18)),
+        h('button', { class: 'btn small', onclick: signOut }, 'Sign out')),
       h('div', { class: 'layout' }, side, main));
   }
 
@@ -684,23 +705,32 @@
     await refreshMappings(); load();
   }
 
-  async function manageFolders() {
-    const drives = state.drives.filter((d) => d.kind === 'personal' && !d.readOnly);
-    await openDialog((done) => {
+  // Settings: the places where you set things up rather than use them. Accounts (which servers are connected)
+  // and the Photos folders (which folder feeds the Photos section, per server).
+  function openSettings() {
+    const again = () => { closeDialog(); openSettings(); };
+    return openDialog(() => {
+      const accounts = h('section', { class: 'sset' }, h('h3', {}, 'Accounts'), ...state.backends.map((b) => accountRow(b, again)));
+
+      const drives = state.drives.filter((d) => d.kind === 'personal' && !d.readOnly);
+      const unmapped = drives.filter((d) => !mappingOf(d.acct, d.id));
       const rows = state.mappings.map((m) => {
         const d = driveBy(m.acct, m.drive);
         const hide = h('input', { type: 'checkbox', checked: m.hideInFiles, onchange: async () => {
           try { await api('/api/photos/folder?' + qs({ acct: m.acct, drive: m.drive, folder: m.folder, hide: hide.checked ? 1 : 0 }), { method: 'PUT' }); await refreshMappings(); load(); } catch (e) { fail(e); } } });
         return h('div', { class: 'mrow' }, d ? vbadge(d.vendor, 18) : '', h('div', { class: 'mt' }, h('b', {}, m.folder), h('small', {}, d ? driveLabel(d) : m.acct)),
           h('label', { class: 'check' }, hide, 'Hide from Personal'),
-          h('button', { type: 'button', class: 'btn small', onclick: () => { closeDialog(); chooseFolder(m); } }, 'Change'),
+          h('button', { type: 'button', class: 'btn small', onclick: async () => { closeDialog(); await chooseFolder(m); openSettings(); } }, 'Change'),
           h('button', { type: 'button', class: 'btn small', onclick: async () => {
-            try { await api('/api/photos/folder?' + qs({ acct: m.acct, drive: m.drive }), { method: 'DELETE' }); closeDialog(); await refreshMappings(); load(); } catch (e) { fail(e); } } }, 'Remove'));
+            try { await api('/api/photos/folder?' + qs({ acct: m.acct, drive: m.drive }), { method: 'DELETE' }); await refreshMappings(); load(); again(); } catch (e) { fail(e); } } }, 'Remove'));
       });
-      const unmapped = drives.filter((d) => !mappingOf(d.acct, d.id));
-      return [h('h2', {}, 'Photo folders'), h('p', { class: 'meta' }, 'Pictures and videos in these folders appear under Photos. The choice is stored in each server\'s own .odraz/manifest.json.'),
-        ...rows, h('div', { class: 'row' }, unmapped.length ? h('button', { type: 'button', class: 'btn', onclick: () => { closeDialog(); chooseFolder(); } }, icon('folderPlus'), 'Add a folder on ' + (unmapped.length === 1 ? driveLabel(unmapped[0]) : 'another server')) : '',
-          h('button', { type: 'button', class: 'btn primary', onclick: () => closeDialog() }, 'Done'))];
+      const photos = h('section', { class: 'sset' }, h('h3', {}, 'Photos'),
+        h('p', { class: 'meta' }, 'Pictures and videos in these folders appear under Photos. The choice is stored in each server\'s own .odraz/manifest.json.'),
+        ...(rows.length ? rows : [h('p', { class: 'meta' }, 'No folder chosen yet.')]),
+        unmapped.length ? h('div', { class: 'row left' }, h('button', { type: 'button', class: 'btn', onclick: async () => { closeDialog(); await chooseFolder(); openSettings(); } },
+          icon('folderPlus'), rows.length ? 'Add a folder on ' + (unmapped.length === 1 ? driveLabel(unmapped[0]) : 'another server') : 'Choose folder…')) : '',
+        rows.length ? h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: state.showAllFiles, onchange: (ev) => { state.showAllFiles = ev.target.checked; load(); } }), 'Show all files (not only pictures and videos) in the Photos views') : '');
+      return [h('h2', {}, 'Settings'), accounts, photos, h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn primary', onclick: () => closeDialog() }, 'Done'))];
     });
   }
 
@@ -795,7 +825,7 @@
     try {
       await api('/api/' + kind + '?' + qs(at(e, { from: e.path, to: dest.path, ...(cross ? { toAcct: dest.acct, toDrive: dest.drive } : {}) })), { method: 'POST' });
       const d = driveBy(dest.acct, dest.drive);
-      toast(verb + (kind === 'move' ? 'd' : 'ied') + ' to ' + (cross && d ? driveLabel(d) + ' ' : '') + dest.path); load();
+      toast((kind === 'move' ? 'Moved' : 'Copied') + ' to ' + (cross && d ? driveLabel(d) + ' ' : '') + dest.path); load();
     } catch (x) { fail(x.code === 'exists' ? new Error('Something already exists at ' + dest.path + '.') : x); }
   }
 

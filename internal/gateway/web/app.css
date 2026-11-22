@@ -265,3 +265,20 @@ tr.selected:hover td { background: var(--selected); }
 .tile.selected .tmedia { opacity: .85; }
 .tile .play { left: 32px; }
 @media (hover: none) { .tile .tsel { opacity: 1; } }
+
+/* new menu, photos toolbar, settings */
+.newmenu { position: relative; display: inline-block; }
+.menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; min-width: 230px; padding: 4px; border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: var(--shadow-overlay); }
+.menu .mi { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px 10px; border: 0; border-radius: var(--radius-sm); background: transparent; cursor: pointer; }
+.menu .mi:hover, .menu .mi:focus-visible { background: var(--hover); }
+.toolbar .spacer { flex: 1; }
+.photobar { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; }
+.photobar > :first-child { justify-self: start; }
+.photobar .seg { justify-self: center; }
+.sset { margin-bottom: var(--space-4); }
+.sset h3 { margin: 0 0 var(--space-2); font: 600 14px/20px var(--font-sans); }
+.sset .acct { padding-left: 0; padding-right: 0; }
+.sset .acct .btn.small { border: 1px solid var(--border-control); }
+.row.left { justify-content: flex-start; }
+.sset .switch { margin-left: 0; margin-top: var(--space-3); }
