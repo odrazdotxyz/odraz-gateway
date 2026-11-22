@@ -64,6 +64,7 @@ type account struct {
 	acc     accounts.Account
 	method  string // "oidc" or "app-token" / "app-password"
 	user    string
+	handle  *accounts.Handle // for what is not files: the avatar
 	client  files.Client
 	drives  map[string]files.FS
 }
@@ -97,6 +98,7 @@ func New(cfg Config) *Server {
 	s.mux.HandleFunc("GET /api/file", s.authed(s.handleDownload))
 	s.mux.HandleFunc("GET /api/thumb", s.authed(s.handleThumb))
 	s.mux.HandleFunc("GET /api/zip", s.authed(s.handleZip))
+	s.mux.HandleFunc("GET /api/avatar", s.authed(s.handleAvatar))
 	s.mux.HandleFunc("GET /api/photos", s.authed(s.handlePhotos))
 	s.mux.HandleFunc("GET /api/photos/config", s.authed(s.handlePhotosConfig))
 	s.mux.HandleFunc("PUT /api/photos/folder", s.csrf(s.authed(s.handlePhotosSet)))

@@ -218,7 +218,7 @@ func (s *Server) connect(ctx context.Context, sess *session, be Backend, acc acc
 		return err
 	}
 	sess.mu.Lock()
-	sess.accts[be.ID] = &account{backend: be, acc: acc, method: method, user: user, client: cl, drives: map[string]files.FS{}}
+	sess.accts[be.ID] = &account{backend: be, acc: acc, method: method, user: user, handle: h, client: cl, drives: map[string]files.FS{}}
 	sess.mu.Unlock()
 	return nil
 }

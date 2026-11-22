@@ -96,8 +96,11 @@
     { id: 'shared', label: 'Shared', icon: 'share', kinds: ['shared', 'other'] },
   ];
   const state = { me: null, demo: false, oidc: true, backends: [], drives: [], driveErrors: {}, cat: 'personal', loc: null, entries: [], loading: false, lastTarget: null,
-    mappings: [], problems: [], photos: { items: [], truncated: false }, showAllFiles: false, showHidden: false, hiddenCount: 0,
+    mappings: [], problems: [], photos: { items: [], truncated: false }, showHidden: false, hiddenCount: 0,
     menuOpen: false, // the "New" menu
+    acctMenu: null, // id of the server whose top-bar menu is open
+    avatars: {}, // per server: 'ok' | 'none' (so a missing avatar is asked for once, not on every redraw)
+    settings: false, // the Settings page is showing
     sel: new Map(), anchor: null, // the selected files and folders, by key; the last one clicked (for shift-click ranges)
     photoView: localStorage.getItem('photoView') === 'folders' ? 'folders' : 'gallery' };
   const catById = (id) => CATS.find((c) => c.id === id) || CATS[0];
@@ -200,7 +203,7 @@
   const clearSel = () => { state.sel.clear(); state.anchor = null; };
   // What is on screen and can be selected, in order (shift-click selects the range between two of them).
   const photoItems = () => (!state.loc && state.photoView === 'gallery' ? (state.photos.items || [])
-    : state.entries.filter((e) => e.kind === 'dir' || state.showAllFiles || kindOf(e) !== 'other'));
+    : state.entries.filter((e) => e.kind === 'dir' || kindOf(e) !== 'other')); // Photos is only pictures and videos (and folders to browse)
   const shownItems = () => (state.cat === 'photos' ? photoItems() : state.entries.filter((e) => !e.isSpace));
   function toggleSel(e, ev) {
     const list = shownItems(), k = selKey(e);
@@ -215,7 +218,7 @@
   const selectedList = () => [...state.sel.values()];
   document.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Escape' || dlg.open) return;
-    if (state.menuOpen) { state.menuOpen = false; render(); } else if (state.sel.size) { clearSel(); render(); }
+    if (state.acctMenu) { state.acctMenu = null; render(); } else if (state.menuOpen) { state.menuOpen = false; render(); } else if (state.sel.size) { clearSel(); render(); }
   });
 
   // ---------- views ----------
@@ -244,20 +247,6 @@
     if (c.id === 'teams') return ds.length + (ds.length === 1 ? ' space' : ' spaces');
     return 'Shared with you';
   };
-
-  // One connected (or connectable) server. `after` runs once an action has changed things (the settings panel
-  // uses it to redraw itself).
-  function accountRow(b, after = () => {}) {
-    const personal = state.drives.find((d) => d.acct === b.id && d.kind === 'personal');
-    const run = async (fn) => { try { await fn(); await boot(); after(); } catch (e) { fail(e); } };
-    const act = b.connected
-      ? h('button', { class: 'btn small', title: 'Disconnect ' + vendorName(b.vendor), onclick: () => run(() => api('/auth/disconnect?' + qs({ backend: b.id }), { method: 'POST' })) }, icon('unplug'), 'Disconnect')
-      : b.oidc
-        ? h('a', { class: 'btn small', href: '/auth/login?' + qs({ backend: b.id }) }, 'Connect')
-        : b.demo ? h('button', { class: 'btn small', onclick: () => run(() => api('/auth/demo?' + qs({ backend: b.id }), { method: 'POST' })) }, 'Connect') : '';
-    return h('div', { class: 'acct' + (b.connected ? '' : ' off') }, vbadge(b.vendor, 18),
-      h('div', { class: 'at' }, h('b', {}, vendorName(b.vendor)), h('small', {}, b.connected ? (b.user || 'connected') + (personal && personal.used != null ? ' · ' + fmtSize(personal.used) : '') : 'not connected')), act);
-  }
 
   function crumbs() {
     const el = h('nav', { class: 'crumbs', 'aria-label': 'Folder path' });
@@ -336,14 +325,48 @@
         // click first: render() replaces the page, and the picker must open from this very click
         item(inPhotos ? 'Upload pictures and videos' : 'Upload files', 'upload', () => { fileInput.click(); close(); })) : '');
   }
-  document.addEventListener('click', (ev) => { if (state.menuOpen && !ev.target.closest('.newmenu')) { state.menuOpen = false; render(); } });
+  document.addEventListener('click', (ev) => {
+    if (state.menuOpen && !ev.target.closest('.newmenu')) { state.menuOpen = false; render(); }
+    if (state.acctMenu && !ev.target.closest('.acctmenu')) { state.acctMenu = null; render(); }
+  });
+
+  // ---------- the accounts in the top bar ----------
+  // One round button per server: the user's picture from that server when it has one, else the vendor's icon
+  // (dimmed when not connected). It opens a small menu to disconnect (or connect).
+  function avatarFace(b) {
+    const fallback = () => vbadge(b.vendor, 28);
+    if (!b.connected) return h('span', { class: 'face off' }, fallback());
+    if (state.avatars[b.id] === 'none') return h('span', { class: 'face' }, fallback());
+    const img = h('img', { class: 'avatar', alt: '', src: '/api/avatar?' + qs({ acct: b.id, size: 64 }) });
+    img.onload = () => { state.avatars[b.id] = 'ok'; };
+    img.onerror = () => { state.avatars[b.id] = 'none'; const f = img.closest('.face'); if (f) f.replaceChildren(fallback()); };
+    // a picture gets the vendor's small icon in its corner, so you still see which server it is
+    return h('span', { class: 'face' }, img, h('span', { class: 'vb-corner' }, vbadge(b.vendor, 12)));
+  }
+
+  function accountButton(b) {
+    const open = state.acctMenu === b.id;
+    const run = async (fn) => { state.acctMenu = null; try { await fn(); await boot(); } catch (e) { fail(e); render(); } };
+    const action = b.connected
+      ? h('button', { class: 'mi', role: 'menuitem', onclick: () => run(() => api('/auth/disconnect?' + qs({ backend: b.id }), { method: 'POST' })) }, icon('unplug', 16), 'Disconnect')
+      : b.oidc ? h('a', { class: 'mi', role: 'menuitem', href: '/auth/login?' + qs({ backend: b.id }) }, icon('plug', 16), 'Connect')
+      : b.demo ? h('button', { class: 'mi', role: 'menuitem', onclick: () => run(() => api('/auth/demo?' + qs({ backend: b.id }), { method: 'POST' })) }, icon('plug', 16), 'Connect')
+      : h('span', { class: 'mi off' }, 'Not available to connect here');
+    return h('span', { class: 'acctmenu' },
+      h('button', { class: 'acctbtn', title: vendorName(b.vendor) + (b.connected ? ' · ' + (b.user || 'connected') : ' · not connected'), 'aria-haspopup': 'menu', 'aria-expanded': String(open),
+        'aria-label': vendorName(b.vendor) + (b.connected ? ', signed in as ' + (b.user || '') : ', not connected'),
+        onclick: (ev) => { ev.stopPropagation(); state.menuOpen = false; state.acctMenu = open ? null : b.id; render(); } }, avatarFace(b)),
+      open ? h('div', { class: 'menu right', role: 'menu' },
+        h('div', { class: 'mhead' }, vbadge(b.vendor, 18), h('div', {}, h('b', {}, vendorName(b.vendor)), h('small', {}, b.connected ? (b.user || 'connected') : 'not connected'))),
+        action) : '');
+  }
 
   function appView() {
     const side = h('aside', {}, h('h2', {}, 'Library'), ...CATS.map((c) => {
       const vendors = c.id === 'photos'
         ? [...new Set(state.mappings.map((m) => (driveBy(m.acct, m.drive) || {}).vendor).filter(Boolean))]
         : [...new Set(drivesOf(c.id).map((d) => d.vendor))];
-      return h('button', { class: 'drive', 'aria-current': c.id === state.cat ? 'true' : 'false', onclick: () => openCat(c.id) },
+      return h('button', { class: 'drive', 'aria-current': c.id === state.cat && !state.settings ? 'true' : 'false', onclick: () => openCat(c.id) },
         h('span', { class: 'dn' }, icon(c.icon), c.label),
         h('small', {}, catSummary(c), h('span', { class: 'vbs' }, vendors.map((v) => vbadge(v, 12)))));
     }));
@@ -371,14 +394,14 @@
       : h('table', {}, h('thead', {}, h('tr', {}, h('th', { class: 'sel' }, selectAllBox()), h('th', {}, 'Name'), h('th', { class: 'num' }, 'Size'), h('th', { class: 'mod' }, 'Modified'), h('th', {}, ''))),
           h('tbody', {}, ...state.entries.map(row)));
 
-    const main = h('main', {}, crumbs(), toolbar, body);
-    wireDrop(main);
+    const main = state.settings ? h('main', {}, settingsView()) : h('main', {}, crumbs(), toolbar, body);
+    if (!state.settings) wireDrop(main);
 
-    const who = state.backends.filter((b) => b.connected);
     return h('div', { class: 'shell' },
       h('header', { class: 'topbar' }, logo('logo'), h('div', { class: 'spacer' }),
-        h('span', { class: 'chip' }, 'Signed in ', ...who.flatMap((b) => [vbadge(b.vendor, 14), h('b', {}, b.user || vendorName(b.vendor)), ' '])),
-        themeBtn(), h('button', { class: 'iconbtn theme', title: 'Settings', 'aria-label': 'Settings', onclick: () => openSettings() }, icon('settings', 18)),
+        ...state.backends.map(accountButton),
+        themeBtn(), h('button', { class: 'iconbtn theme' + (state.settings ? ' active' : ''), title: 'Settings', 'aria-label': 'Settings', 'aria-pressed': String(state.settings),
+          onclick: () => (state.settings ? openCat(state.cat) : openSettingsPage()) }, icon('settings', 18)),
         h('button', { class: 'btn small', onclick: signOut }, 'Sign out')),
       h('div', { class: 'layout' }, side, main));
   }
@@ -394,16 +417,16 @@
 
   // ---------- navigation ----------
   // Inside Photos the folder you are in is a drive path too, so the hash says cat=photos to keep you there.
-  const hashOf = () => '#' + (state.loc ? qs({ ...(state.cat === 'photos' ? { cat: 'photos' } : {}), acct: state.loc.acct, drive: state.loc.drive, path: state.loc.path }) : qs({ cat: state.cat }));
+  const hashOf = () => state.settings ? '#settings' : '#' + (state.loc ? qs({ ...(state.cat === 'photos' ? { cat: 'photos' } : {}), acct: state.loc.acct, drive: state.loc.drive, path: state.loc.path }) : qs({ cat: state.cat }));
   const setPhotoView = (v) => { state.photoView = v; localStorage.setItem('photoView', v); };
   function openCat(id) {
-    clearSel();
+    clearSel(); state.settings = false;
     if (id === 'photos' && state.loc) setPhotoView('folders'); // coming up from a folder: show the folders, not the gallery
     state.cat = id; state.loc = null; history.pushState(null, '', hashOf()); load();
   }
   const isPhotoRoot = (loc) => state.cat === 'photos' && state.mappings.some((m) => m.acct === loc.acct && m.drive === loc.drive && m.folder === (loc.path || '/'));
   function go(loc) {
-    clearSel();
+    clearSel(); state.settings = false;
     const d = driveBy(loc.acct, loc.drive);
     if (state.cat === 'photos') setPhotoView('folders');
     else if (d) state.cat = catOfKind(d.kind);
@@ -412,6 +435,7 @@
   }
   window.addEventListener('popstate', () => { clearSel(); readHash(); load(); });
   function readHash() {
+    state.settings = location.hash === '#settings';
     const p = new URLSearchParams(location.hash.slice(1));
     const d = driveBy(p.get('acct'), p.get('drive'));
     if (d) {
@@ -442,7 +466,7 @@
   }
 
   async function loadPhotos() {
-    const res = await api('/api/photos' + (state.showAllFiles ? '?all=1' : ''));
+    const res = await api('/api/photos');
     Object.entries(res.errors || {}).forEach(([k, v]) => fail(new Error(k + ': ' + v)));
     return res;
   }
@@ -592,7 +616,6 @@
     const frame = h('span', { class: 'tmedia' });
     const generic = (ic) => frame.replaceChildren(h('span', { class: 'tgen' }, icon(ic, 28)));
     if (kind === 'dir') generic('folder');
-    else if (kind === 'other') generic('file');
     else {
       const img = h('img', { alt: '', loading: 'lazy', src: thumbUrl(it) });
       // The server renders thumbnails. If it has none for this file (HTTP 501), a picture falls back to the
@@ -631,8 +654,8 @@
     }
     const gallery = !state.loc && state.photoView === 'gallery';
     const items = photoItems();
-    if (!items.length) return h('div', { class: 'empty' }, gallery ? 'No pictures or videos in your photo folders yet.' + (state.showAllFiles ? '' : ' Turn on "Show all files" to see everything in them.')
-      : 'Nothing here yet.' + (state.showAllFiles ? '' : ' Pictures and videos are shown; turn on "Show all files" to see the rest.') + (canAdd() ? ' Drop files here to upload.' : ''));
+    if (!items.length) return h('div', { class: 'empty' }, gallery ? 'No pictures or videos in your photo folders yet.'
+      : 'No pictures or videos here yet.' + (canAdd() ? ' Drop some here to upload.' : ''));
     return h('div', {}, h('div', { class: 'grid' + (state.sel.size ? ' selecting' : '') }, items.map(tile)),
       gallery && state.photos.truncated ? h('p', { class: 'meta' }, 'Showing the first ' + items.length + ' items.') : '');
   }
@@ -702,36 +725,40 @@
       await api('/api/photos/folder?' + qs({ acct: pick.drive.acct, drive: pick.drive.id, folder: pick.folder, hide: pick.hide ? 1 : 0 }), { method: 'PUT' });
       toast('Photos folder set to ' + pick.folder + ' on ' + driveLabel(pick.drive));
     } catch (e) { fail(e); return; }
-    await refreshMappings(); load();
+    await refreshMappings(); if (state.settings) render(); else load();
   }
 
-  // Settings: the places where you set things up rather than use them. Accounts (which servers are connected)
-  // and the Photos folders (which folder feeds the Photos section, per server).
-  function openSettings() {
-    const again = () => { closeDialog(); openSettings(); };
-    return openDialog(() => {
-      const accounts = h('section', { class: 'sset' }, h('h3', {}, 'Accounts'), ...state.backends.map((b) => accountRow(b, again)));
+  // ---------- the Settings page ----------
+  // Where you set things up rather than use them. For now: which folder feeds the Photos section, per server.
+  // (Accounts are in the top bar, where you reach them quickly.)
+  function openSettingsPage() {
+    clearSel(); state.menuOpen = false; state.acctMenu = null; state.settings = true;
+    history.pushState(null, '', hashOf()); render();
+    refreshMappings().then(() => { if (state.settings) render(); });
+  }
 
-      const drives = state.drives.filter((d) => d.kind === 'personal' && !d.readOnly);
-      const unmapped = drives.filter((d) => !mappingOf(d.acct, d.id));
-      const rows = state.mappings.map((m) => {
-        const d = driveBy(m.acct, m.drive);
-        const hide = h('input', { type: 'checkbox', checked: m.hideInFiles, onchange: async () => {
-          try { await api('/api/photos/folder?' + qs({ acct: m.acct, drive: m.drive, folder: m.folder, hide: hide.checked ? 1 : 0 }), { method: 'PUT' }); await refreshMappings(); load(); } catch (e) { fail(e); } } });
-        return h('div', { class: 'mrow' }, d ? vbadge(d.vendor, 18) : '', h('div', { class: 'mt' }, h('b', {}, m.folder), h('small', {}, d ? driveLabel(d) : m.acct)),
-          h('label', { class: 'check' }, hide, 'Hide from Personal'),
-          h('button', { type: 'button', class: 'btn small', onclick: async () => { closeDialog(); await chooseFolder(m); openSettings(); } }, 'Change'),
-          h('button', { type: 'button', class: 'btn small', onclick: async () => {
-            try { await api('/api/photos/folder?' + qs({ acct: m.acct, drive: m.drive }), { method: 'DELETE' }); await refreshMappings(); load(); again(); } catch (e) { fail(e); } } }, 'Remove'));
-      });
-      const photos = h('section', { class: 'sset' }, h('h3', {}, 'Photos'),
-        h('p', { class: 'meta' }, 'Pictures and videos in these folders appear under Photos. The choice is stored in each server\'s own .odraz/manifest.json.'),
-        ...(rows.length ? rows : [h('p', { class: 'meta' }, 'No folder chosen yet.')]),
-        unmapped.length ? h('div', { class: 'row left' }, h('button', { type: 'button', class: 'btn', onclick: async () => { closeDialog(); await chooseFolder(); openSettings(); } },
-          icon('folderPlus'), rows.length ? 'Add a folder on ' + (unmapped.length === 1 ? driveLabel(unmapped[0]) : 'another server') : 'Choose folder…')) : '',
-        rows.length ? h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: state.showAllFiles, onchange: (ev) => { state.showAllFiles = ev.target.checked; load(); } }), 'Show all files (not only pictures and videos) in the Photos views') : '');
-      return [h('h2', {}, 'Settings'), accounts, photos, h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn primary', onclick: () => closeDialog() }, 'Done'))];
+  function settingsView() {
+    const redraw = async () => { await refreshMappings(); if (state.settings) render(); };
+    const drives = state.drives.filter((d) => d.kind === 'personal' && !d.readOnly);
+    const unmapped = drives.filter((d) => !mappingOf(d.acct, d.id));
+    const rows = state.mappings.map((m) => {
+      const d = driveBy(m.acct, m.drive);
+      const hide = h('input', { type: 'checkbox', checked: m.hideInFiles, onchange: async () => {
+        try { await api('/api/photos/folder?' + qs({ acct: m.acct, drive: m.drive, folder: m.folder, hide: hide.checked ? 1 : 0 }), { method: 'PUT' }); await redraw(); } catch (e) { fail(e); } } });
+      return h('div', { class: 'mrow' }, d ? vbadge(d.vendor, 20) : '', h('div', { class: 'mt' }, h('b', {}, m.folder), h('small', {}, d ? driveLabel(d) : m.acct)),
+        h('label', { class: 'check' }, hide, 'Hide from Personal'),
+        h('button', { type: 'button', class: 'btn small', onclick: () => chooseFolder(m) }, 'Change'),
+        h('button', { type: 'button', class: 'btn small', onclick: async () => {
+          try { await api('/api/photos/folder?' + qs({ acct: m.acct, drive: m.drive }), { method: 'DELETE' }); await redraw(); } catch (e) { fail(e); } } }, 'Remove'));
     });
+    return h('div', { class: 'settings' }, h('h1', {}, 'Settings'),
+      h('section', { class: 'scard' }, h('h2', {}, 'Photos'),
+        h('p', { class: 'meta' }, 'The Photos section shows the pictures and videos in the folders you choose here, from every server. Nothing is moved or renamed: the choice is stored in each server\'s own ', h('code', {}, '.odraz/manifest.json'), '.'),
+        ...(rows.length ? rows : [h('p', { class: 'meta' }, 'No folder chosen yet.')]),
+        state.problems.length ? h('p', { class: 'meta' }, 'A server has a .odraz/manifest.json this page cannot read (invalid, or written by a newer client). It is left untouched.') : '',
+        drives.length === 0 ? h('p', { class: 'meta' }, 'Connect a server first (the round buttons in the top bar).')
+          : unmapped.length ? h('div', { class: 'row left' }, h('button', { type: 'button', class: 'btn', onclick: () => chooseFolder() },
+            icon('folderPlus'), rows.length ? 'Add a folder on ' + (unmapped.length === 1 ? driveLabel(unmapped[0]) : 'another server') : 'Choose folder…')) : ''));
   }
 
   // ---------- choosing where something goes ----------

@@ -159,7 +159,7 @@ type photoJSON struct {
 	Size    int64  `json:"size"`
 	ModTime string `json:"modTime,omitempty"`
 	Mime    string `json:"mime,omitempty"`
-	Kind    string `json:"kind"` // "image", "video", or "other" (only with ?all=1)
+	Kind    string `json:"kind"` // "image" or "video"
 }
 
 const maxPhotos = 5000
@@ -185,10 +185,10 @@ func mediaKind(e files.Entry) string {
 	return ""
 }
 
-// GET /api/photos[?all=1]: the pictures and videos under the folders chosen for Photos, from every mapped
-// drive, newest first. With all=1 the other files of those folders are listed too ("Show all files").
+// GET /api/photos: the pictures and videos under the folders chosen for Photos, from every mapped drive,
+// newest first. Only pictures and videos: the other files of those folders are not part of Photos (they stay
+// reachable in the file views, with "Show hidden").
 func (s *Server) handlePhotos(w http.ResponseWriter, r *http.Request, sess *session) {
-	all := r.URL.Query().Get("all") == "1"
 	drives, errs := s.personalDrives(r.Context(), sess)
 	items := []photoJSON{}
 	truncated := false
@@ -222,10 +222,7 @@ func (s *Server) handlePhotos(w http.ResponseWriter, r *http.Request, sess *sess
 				}
 				kind := mediaKind(e)
 				if kind == "" {
-					if !all {
-						return nil
-					}
-					kind = "other"
+					return nil
 				}
 				j := photoJSON{Acct: pd.a.backend.ID, Drive: pd.d.ID, Vendor: pd.a.backend.Vendor, Name: e.Name, Path: e.Path, Size: e.Size, Mime: contentType(e), Kind: kind}
 				if !e.ModTime.IsZero() {

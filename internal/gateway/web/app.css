@@ -282,3 +282,23 @@ tr.selected:hover td { background: var(--selected); }
 .sset .acct .btn.small { border: 1px solid var(--border-control); }
 .row.left { justify-content: flex-start; }
 .sset .switch { margin-left: 0; margin-top: var(--space-3); }
+
+/* top bar accounts, settings page */
+.acctmenu { position: relative; display: inline-block; }
+.acctbtn { position: relative; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
+.acctbtn:hover { background: var(--hover); }
+.acctbtn .face { position: relative; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; }
+.acctbtn .face.off { opacity: .4; filter: grayscale(.4); }
+.acctbtn .face img.avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; display: block; }
+.acctbtn .vb-corner { right: -3px; bottom: -3px; box-shadow: 0 0 0 2px var(--surface-raised); }
+.menu.right { left: auto; right: 0; min-width: 220px; }
+.menu .mhead { display: flex; align-items: center; gap: 10px; padding: 8px 10px 10px; border-bottom: 1px solid var(--border-subtle); margin-bottom: 4px; }
+.menu .mhead small { display: block; color: var(--ink-muted); font-size: 12px; line-height: 16px; }
+.menu a.mi { text-decoration: none; color: inherit; }
+.menu .mi.off { color: var(--ink-muted); cursor: default; font-size: 13px; }
+.iconbtn.theme.active { background: var(--selected); color: var(--accent); }
+.settings { max-width: 680px; }
+.settings h1 { margin: 0 0 var(--space-4); font: 600 22px/30px var(--font-sans); }
+.scard { border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-6) var(--space-4); background: var(--surface-raised); }
+.scard h2 { margin: 0 0 var(--space-2); font: 600 16px/24px var(--font-sans); }
+.scard .mrow:first-of-type { border-top: 0; }

@@ -40,9 +40,10 @@ no server of ours, and it moves with the data.
 ## The Photos section
 
 The user chooses the folder (nothing is guessed or moved). Photos shows only the pictures and videos in that
-folder and everything below it, as one list across every drive that has a `photos` section. A "show all
-files" switch lists the other files of the folder too, so nothing in it is unreachable. Thumbnails come from
-the server where it has them (`files.Preview` in the SDK).
+folder and everything below it, as one list across every drive that has a `photos` section; other files in the
+folder are not part of Photos. Because `hideInFiles` removes the folder from the plain file views, a client
+should give a way to reveal hidden folders there ("Show hidden"), so those other files stay reachable.
+Thumbnails come from the server where it has them (`files.Preview` in the SDK).
 
 ## Reference implementation
 
