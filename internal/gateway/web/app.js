@@ -53,6 +53,9 @@
     users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
     share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98"/><path d="m15.41 6.51-6.82 3.98"/>',
     chevron: '<path d="m9 18 6-6-6-6"/>',
+    film: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>',
+    play: '<polygon points="6 3 20 12 6 21 6 3"/>',
+    eyeOff: '<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/>',
     plug: '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
     unplug: '<path d="m19 5 3-3"/><path d="m2 22 3-3"/><path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"/><path d="M7.5 13.5 10 11"/><path d="M10.5 16.5 13 14"/><path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z"/>',
   };
@@ -85,10 +88,12 @@
   // Shared. `loc` is null at a category's top level, or {acct, drive, path} once inside a folder.
   const CATS = [
     { id: 'personal', label: 'Personal', icon: 'user', kinds: ['personal'] },
+    { id: 'photos', label: 'Photos', icon: 'image', kinds: [] }, // built from the folders chosen per drive (manifest)
     { id: 'teams', label: 'Teams', icon: 'users', kinds: ['project'] },
     { id: 'shared', label: 'Shared', icon: 'share', kinds: ['shared', 'other'] },
   ];
-  const state = { me: null, demo: false, oidc: true, backends: [], drives: [], driveErrors: {}, cat: 'personal', loc: null, entries: [], loading: false, lastTarget: null };
+  const state = { me: null, demo: false, oidc: true, backends: [], drives: [], driveErrors: {}, cat: 'personal', loc: null, entries: [], loading: false, lastTarget: null,
+    mappings: [], problems: [], photos: { items: [], truncated: false }, showAllFiles: false, showHidden: false, hiddenCount: 0 };
   const catById = (id) => CATS.find((c) => c.id === id) || CATS[0];
   const catOfKind = (k) => (CATS.find((c) => c.kinds.includes(k)) || CATS[2]).id;
   const drivesOf = (cat) => state.drives.filter((d) => catById(cat).kinds.includes(d.kind));
@@ -96,6 +101,19 @@
   const curDrive = () => (state.loc ? driveBy(state.loc.acct, state.loc.drive) : null);
   const curPath = () => (state.loc ? state.loc.path : '/');
   const isRO = (e) => { const d = driveBy(e.acct, e.drive); return !!(d && d.readOnly); };
+  // Photos folders the user mapped (from each drive's manifest) and what the plain file views leave out:
+  // dot-folders always (/.odraz holds the manifest and thumbnails), and a mapped Photos folder when the
+  // mapping says hideInFiles. "Show hidden" in the toolbar reveals them, so nothing is ever unreachable.
+  const mappingOf = (acct, drive) => state.mappings.find((m) => m.acct === acct && m.drive === drive);
+  const isHidden = (e) => {
+    if (e.name.startsWith('.')) return true;
+    const m = mappingOf(e.acct, e.drive);
+    return !!(m && m.hideInFiles && e.isDir && e.path === m.folder);
+  };
+  function applyHidden(entries) {
+    state.hiddenCount = entries.filter(isHidden).length;
+    return state.showHidden ? entries : entries.filter((e) => !isHidden(e));
+  }
   const writableDrives = () => state.drives.filter((d) => !d.readOnly && d.kind !== 'shared');
 
   // ---------- api ----------
@@ -126,7 +144,9 @@
     return new Promise((resolve) => {
       dlg.className = wide ? 'wide' : '';
       dlg.replaceChildren(...content(resolve));
-      dlg.onclose = () => resolve(null);
+      // A dialog closed a moment ago ("Add a folder" closes one and opens the next) delivers its close event
+      // late, while this one is already open: ignore it.
+      dlg.onclose = () => { if (!dlg.open) resolve(null); };
       dlg.showModal();
     });
   }
@@ -177,6 +197,7 @@
   }
 
   const catSummary = (c) => {
+    if (c.id === 'photos') return state.mappings.length ? state.mappings.length + (state.mappings.length === 1 ? ' folder' : ' folders') : 'Choose a folder';
     const ds = drivesOf(c.id);
     if (!ds.length) return 'Nothing connected';
     if (c.id === 'personal') { const u = ds.reduce((n, d) => n + (d.used || 0), 0); return u ? fmtSize(u) + ' used' : 'Your files'; }
@@ -257,20 +278,30 @@
 
   function appView() {
     const side = h('aside', {}, h('h2', {}, 'Library'), ...CATS.map((c) => {
-      const vendors = [...new Set(drivesOf(c.id).map((d) => d.vendor))];
+      const vendors = c.id === 'photos'
+        ? [...new Set(state.mappings.map((m) => (driveBy(m.acct, m.drive) || {}).vendor).filter(Boolean))]
+        : [...new Set(drivesOf(c.id).map((d) => d.vendor))];
       return h('button', { class: 'drive', 'aria-current': c.id === state.cat ? 'true' : 'false', onclick: () => openCat(c.id) },
         h('span', { class: 'dn' }, icon(c.icon), c.label),
         h('small', {}, catSummary(c), h('span', { class: 'vbs' }, vendors.map((v) => vbadge(v, 12)))));
     }), h('h2', { class: 'acc' }, 'Accounts'), ...state.backends.map(accountRow));
 
     const fileInput = h('input', { type: 'file', multiple: true, hidden: true, onchange: () => { uploadFiles([...fileInput.files]); fileInput.value = ''; } });
-    const toolbar = h('div', { class: 'toolbar' },
-      h('button', { class: 'btn primary', disabled: !canAdd(), onclick: () => fileInput.click() }, icon('upload'), 'Upload'), fileInput,
-      h('button', { class: 'btn', disabled: !canAdd(), onclick: newFolder }, icon('folderPlus'), 'New folder'),
-      h('button', { class: 'btn', onclick: () => load() }, icon('refresh'), 'Refresh'),
-      addHint() ? h('span', { class: 'ro' }, addHint()) : '');
+    const inPhotos = state.cat === 'photos' && !state.loc;
+    const hiddenHint = state.hiddenCount ? h('span', { class: 'ro' }, state.hiddenCount + ' hidden ', h('button', { class: 'linkbtn', onclick: () => { state.showHidden = !state.showHidden; load(); } }, state.showHidden ? 'Hide again' : 'Show')) : '';
+    const toolbar = inPhotos
+      ? h('div', { class: 'toolbar' },
+          h('button', { class: 'btn' + (state.mappings.length ? '' : ' primary'), onclick: () => (state.mappings.length ? manageFolders() : chooseFolder()) }, icon('folder'), state.mappings.length ? 'Photo folders' : 'Choose folder…'),
+          h('button', { class: 'btn', onclick: () => load() }, icon('refresh'), 'Refresh'),
+          state.mappings.length ? h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: state.showAllFiles, onchange: (ev) => { state.showAllFiles = ev.target.checked; load(); } }), 'Show all files') : '')
+      : h('div', { class: 'toolbar' },
+          h('button', { class: 'btn primary', disabled: !canAdd(), onclick: () => fileInput.click() }, icon('upload'), 'Upload'), fileInput,
+          h('button', { class: 'btn', disabled: !canAdd(), onclick: newFolder }, icon('folderPlus'), 'New folder'),
+          h('button', { class: 'btn', onclick: () => load() }, icon('refresh'), 'Refresh'),
+          addHint() ? h('span', { class: 'ro' }, addHint()) : '', hiddenHint);
 
     const body = state.loading ? h('div', { class: 'empty' }, 'Loading…')
+      : inPhotos ? photosView()
       : state.entries.length === 0 ? h('div', { class: 'empty' }, drivesOf(state.cat).length === 0 && !state.loc ? 'Nothing here yet: none of your connected accounts has this kind of space.' : 'This folder is empty.' + (canAdd() ? ' Drop files here to upload.' : ''))
       : h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', { class: 'num' }, 'Size'), h('th', { class: 'mod' }, 'Modified'), h('th', {}, ''))),
           h('tbody', {}, ...state.entries.map(row)));
@@ -327,6 +358,18 @@
     return all.sort(byName);
   }
 
+  async function loadPhotos() {
+    const res = await api('/api/photos' + (state.showAllFiles ? '?all=1' : ''));
+    Object.entries(res.errors || {}).forEach(([k, v]) => fail(new Error(k + ': ' + v)));
+    return res;
+  }
+  async function refreshMappings() {
+    try {
+      const res = await api('/api/photos/config');
+      state.mappings = res.mappings || []; state.problems = res.problems || [];
+    } catch (e) { state.mappings = []; if (e.status !== 401) fail(e); }
+  }
+
   // Only the latest load() may update the page: a slower, older one (for example the reload after a delete,
   // still in flight when you click another tab) must not overwrite it.
   let loadSeq = 0;
@@ -342,11 +385,15 @@
         if (stale()) return;
         const vendor = (driveBy(acct, dv) || {}).vendor;
         state.loc.path = res.path; entries = res.entries.map((e) => ({ ...e, acct, drive: dv, vendor }));
+      } else if (state.cat === 'photos') {
+        const res = await loadPhotos();
+        if (stale()) return;
+        state.photos = res; entries = [];
       } else {
         entries = await loadCategory(state.cat);
         if (stale()) return;
       }
-      state.entries = entries;
+      state.entries = applyHidden(entries);
     } catch (e) {
       if (stale()) return;
       state.entries = [];
@@ -355,6 +402,106 @@
       if (e.status !== 401) fail(e);
     }
     state.loading = false; render();
+  }
+
+  // ---------- Photos ----------
+  const thumbUrl = (it, size = 256) => '/api/thumb?' + qs(at(it, { path: it.path, size }));
+
+  function tile(it) {
+    const frame = h('span', { class: 'tmedia' });
+    const generic = () => { frame.replaceChildren(h('span', { class: 'tgen' }, icon(it.kind === 'video' ? 'film' : it.kind === 'other' ? 'file' : 'image', 28))); };
+    if (it.kind === 'other') generic();
+    else {
+      const img = h('img', { alt: '', loading: 'lazy', src: thumbUrl(it) });
+      // The server renders thumbnails. If it has none for this file (HTTP 501), a picture falls back to the
+      // original (shown scaled down by the browser); anything else gets a plain tile.
+      img.onerror = () => {
+        if (it.kind === 'image' && !img.dataset.fallback) { img.dataset.fallback = '1'; img.src = fileUrl(it, { inline: 1 }); } else generic();
+      };
+      frame.append(img);
+    }
+    return h('button', { class: 'tile', title: it.name + (it.vendor ? ' · ' + vendorName(it.vendor) : ''), onclick: () => (it.kind === 'other' ? preview(it) : preview(it)) },
+      frame, it.kind === 'video' ? h('span', { class: 'play' }, icon('play', 14)) : '',
+      h('span', { class: 'tl' }, it.name), it.vendor ? h('span', { class: 'vb-corner' }, vbadge(it.vendor, 14)) : '');
+  }
+
+  function photosView() {
+    if (!state.mappings.length) {
+      const note = state.problems.length ? h('p', { class: 'meta' }, 'A drive has a ' + '.odraz/manifest.json this page cannot read (invalid, or written by a newer client). It is left untouched.') : '';
+      return h('div', { class: 'prompt' }, h('div', { class: 'pic' }, icon('image', 28)),
+        h('h2', {}, 'Choose your photos folder'),
+        h('p', {}, 'Pick the folder where your pictures and videos live. Photos then shows just the pictures and videos from it, from every server you have connected. Nothing is moved or renamed.'),
+        h('button', { class: 'btn primary', onclick: chooseFolder }, icon('folder'), 'Choose folder…'), note);
+    }
+    const items = state.photos.items || [];
+    if (!items.length) return h('div', { class: 'empty' }, 'No pictures or videos in your photo folders yet.' + (state.showAllFiles ? '' : ' Turn on "Show all files" to see everything in them.'));
+    return h('div', {}, h('div', { class: 'grid' }, items.map(tile)),
+      state.photos.truncated ? h('p', { class: 'meta' }, 'Showing the first ' + items.length + ' items.') : '');
+  }
+
+  // Pick a folder in a drive: browse its folders, choose one. The choice is written to that drive's manifest.
+  function pickFolder(startDrive) {
+    const ds = state.drives.filter((d) => d.kind === 'personal' && !d.readOnly);
+    return openDialog((done) => {
+      let drive = ds.find((d) => startDrive && d.acct === startDrive.acct && d.id === startDrive.drive) || ds.find((d) => !mappingOf(d.acct, d.id)) || ds[0];
+      let dir = '/';
+      const hide = h('input', { type: 'checkbox', checked: true });
+      const list = h('div', { class: 'folders' });
+      const bar = h('div', { class: 'crumbs pickcrumbs' });
+      const useBtn = h('button', { class: 'btn primary' }, 'Use this folder');
+      const sel = ds.length > 1 ? h('select', { 'aria-label': 'Server', onchange: () => { drive = ds[+sel.value]; dir = '/'; show(); } },
+        ds.map((d, i) => h('option', { value: i, selected: d === drive }, driveLabel(d)))) : null;
+      async function show() {
+        list.replaceChildren(h('div', { class: 'empty' }, 'Loading…'));
+        bar.replaceChildren(...[['/', drive.name], ...dir.split('/').filter(Boolean).map((seg, i, a) => ['/' + a.slice(0, i + 1).join('/'), seg])].flatMap(([p, label], i) => [
+          i ? h('span', { class: 'sep' }, icon('chevron', 14)) : '', h('button', { type: 'button', onclick: () => { dir = p; show(); } }, label)]));
+        useBtn.disabled = dir === '/'; useBtn.textContent = dir === '/' ? 'Open a folder first' : 'Use ' + dir;
+        try {
+          const res = await api('/api/list?' + qs({ acct: drive.acct, drive: drive.id, path: dir }));
+          const dirs = res.entries.filter((e) => e.isDir && !e.name.startsWith('.'));
+          list.replaceChildren(...(dirs.length ? dirs.map((e) => h('button', { type: 'button', class: 'frow', onclick: () => { dir = e.path; show(); } }, icon('folder', 16), e.name, icon('chevron', 14)))
+            : [h('div', { class: 'empty' }, 'No folders here.')]));
+        } catch (e) { list.replaceChildren(h('div', { class: 'empty' }, e.message)); }
+      }
+      const form = h('form', { method: 'dialog', onsubmit: (ev) => { ev.preventDefault(); if (dir !== '/') { done({ drive, folder: dir, hide: hide.checked }); closeDialog(); } } },
+        h('h2', {}, 'Choose your photos folder'), sel ? h('label', {}, 'Server', sel) : '', bar, list,
+        h('label', { class: 'check' }, hide, 'Hide this folder from Personal (it stays reachable with "Show hidden")'),
+        h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn', onclick: () => closeDialog() }, 'Not now'), useBtn));
+      show();
+      return [form];
+    }, true);
+  }
+
+  async function chooseFolder(startDrive) {
+    const ds = state.drives.filter((d) => d.kind === 'personal' && !d.readOnly);
+    if (!ds.length) { toast('No personal space to choose a folder in', true); return; }
+    const pick = await pickFolder(startDrive);
+    if (!pick) return;
+    try {
+      await api('/api/photos/folder?' + qs({ acct: pick.drive.acct, drive: pick.drive.id, folder: pick.folder, hide: pick.hide ? 1 : 0 }), { method: 'PUT' });
+      toast('Photos folder set to ' + pick.folder + ' on ' + driveLabel(pick.drive));
+    } catch (e) { fail(e); return; }
+    await refreshMappings(); load();
+  }
+
+  async function manageFolders() {
+    const drives = state.drives.filter((d) => d.kind === 'personal' && !d.readOnly);
+    await openDialog((done) => {
+      const rows = state.mappings.map((m) => {
+        const d = driveBy(m.acct, m.drive);
+        const hide = h('input', { type: 'checkbox', checked: m.hideInFiles, onchange: async () => {
+          try { await api('/api/photos/folder?' + qs({ acct: m.acct, drive: m.drive, folder: m.folder, hide: hide.checked ? 1 : 0 }), { method: 'PUT' }); await refreshMappings(); load(); } catch (e) { fail(e); } } });
+        return h('div', { class: 'mrow' }, d ? vbadge(d.vendor, 18) : '', h('div', { class: 'mt' }, h('b', {}, m.folder), h('small', {}, d ? driveLabel(d) : m.acct)),
+          h('label', { class: 'check' }, hide, 'Hide from Personal'),
+          h('button', { type: 'button', class: 'btn small', onclick: () => { closeDialog(); chooseFolder(m); } }, 'Change'),
+          h('button', { type: 'button', class: 'btn small', onclick: async () => {
+            try { await api('/api/photos/folder?' + qs({ acct: m.acct, drive: m.drive }), { method: 'DELETE' }); closeDialog(); await refreshMappings(); load(); } catch (e) { fail(e); } } }, 'Remove'));
+      });
+      const unmapped = drives.filter((d) => !mappingOf(d.acct, d.id));
+      return [h('h2', {}, 'Photo folders'), h('p', { class: 'meta' }, 'Pictures and videos in these folders appear under Photos. The choice is stored in each server\'s own .odraz/manifest.json.'),
+        ...rows, h('div', { class: 'row' }, unmapped.length ? h('button', { type: 'button', class: 'btn', onclick: () => { closeDialog(); chooseFolder(); } }, icon('folderPlus'), 'Add a folder on ' + (unmapped.length === 1 ? driveLabel(unmapped[0]) : 'another server')) : '',
+          h('button', { type: 'button', class: 'btn primary', onclick: () => closeDialog() }, 'Done'))];
+    });
   }
 
   // ---------- choosing where something goes ----------
@@ -401,9 +548,11 @@
   async function preview(e) {
     const type = (e.mime || '').split(';')[0];
     const isImg = type.startsWith('image/');
+    const isVid = type.startsWith('video/') || /\.(mp4|m4v|webm|ogv)$/i.test(e.name);
     const isText = type.startsWith('text/') || type === 'application/json' || /\.(md|csv|json|txt|js|css|html)$/i.test(e.name);
     await openDialog((done) => {
-      const box = h('div', { class: 'preview' }, h('div', { class: 'empty' }, isImg || isText ? 'Loading…' : 'No preview for this type of file.'));
+      const box = h('div', { class: 'preview' }, h('div', { class: 'empty' }, isImg || isText ? 'Loading…' : isVid ? '' : 'No preview for this type of file.'));
+      if (isVid) box.replaceChildren(h('video', { controls: true, preload: 'metadata', src: fileUrl(e, { inline: 1 }), 'aria-label': e.name }));
       if (isImg) { const img = h('img', { alt: e.name, src: fileUrl(e, { inline: 1 }) }); img.onload = () => box.replaceChildren(img); img.onerror = () => box.replaceChildren(h('div', { class: 'empty' }, 'Could not load the image.')); }
       else if (isText) {
         api(fileUrl(e, { inline: 1 }), { raw: true, headers: { Range: 'bytes=0-131071' } }).then((r) => r.text()).then((t) => {
@@ -517,6 +666,7 @@
       const res = await api('/api/drives');
       state.drives = res.drives.sort((a, b) => a.name.localeCompare(b.name) || a.vendor.localeCompare(b.vendor));
       Object.entries(res.errors || {}).forEach(([k, v]) => fail(new Error(k + ': ' + v)));
+      await refreshMappings();
       readHash();
       history.replaceState(null, '', hashOf());
       await load();

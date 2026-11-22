@@ -230,6 +230,8 @@ var inlineTypes = map[string]bool{
 	"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true, "image/svg+xml": true,
 	"text/plain": true, "text/markdown": true, "text/csv": true, "application/json": true,
 	"text/css": true, "text/javascript": true, "application/javascript": true, "text/html": true,
+	"video/mp4": true, "video/webm": true, "video/ogg": true, // played in the Photos section
+
 }
 
 func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request, sess *session) {
