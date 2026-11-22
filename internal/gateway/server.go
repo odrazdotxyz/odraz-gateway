@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"io/fs"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -42,6 +43,10 @@ type Config struct {
 	ClientID  string    // OIDC client registered in the identity provider for this gateway
 	Insecure  bool      // accept self-signed certificates (OpenCloud's demo certificate)
 	Backends  []Backend // at least one
+	// WebDir, if set, serves the page (index.html, app.js, app.css, assets) from this folder on disk instead of the
+	// copy compiled into the binary, so edits to the page show up on a browser refresh without restarting the
+	// gateway. For development; leave it empty for the self-contained binary.
+	WebDir string
 }
 
 // Server is the gateway's http.Handler.
@@ -83,6 +88,9 @@ type session struct {
 func New(cfg Config) *Server {
 	s := &Server{cfg: cfg, mux: http.NewServeMux(), sessions: map[string]*session{}}
 	web, _ := fs.Sub(webFS, "web")
+	if cfg.WebDir != "" {
+		web = os.DirFS(cfg.WebDir)
+	}
 	s.mux.Handle("GET /", noStore(http.FileServerFS(web)))
 
 	s.mux.HandleFunc("GET /auth/login", s.handleLogin)

@@ -302,3 +302,4 @@ tr.selected:hover td { background: var(--selected); }
 .scard { border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-6) var(--space-4); background: var(--surface-raised); }
 .scard h2 { margin: 0 0 var(--space-2); font: 600 16px/24px var(--font-sans); }
 .scard .mrow:first-of-type { border-top: 0; }
+.acctbtn .letter { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: #fff; font: 600 13px/1 var(--font-sans); }

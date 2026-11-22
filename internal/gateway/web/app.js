@@ -331,17 +331,23 @@
   });
 
   // ---------- the accounts in the top bar ----------
-  // One round button per server: the user's picture from that server when it has one, else the vendor's icon
-  // (dimmed when not connected). It opens a small menu to disconnect (or connect).
+  // One round button per server: the user's picture from that server when it has one, else their first letter,
+  // with the vendor's small icon in the corner (dimmed vendor icon alone when not connected). It opens a small
+  // menu to disconnect (or connect).
+  // A stable colour for a name (the letter circle of someone without a photo).
+  const hueOf = (name) => { let n = 0; for (const c of name) n = (n * 31 + c.codePointAt(0)) % 360; return 'hsl(' + n + ' 42% 40%)'; };
   function avatarFace(b) {
-    const fallback = () => vbadge(b.vendor, 28);
-    if (!b.connected) return h('span', { class: 'face off' }, fallback());
-    if (state.avatars[b.id] === 'none') return h('span', { class: 'face' }, fallback());
+    if (!b.connected) return h('span', { class: 'face off' }, vbadge(b.vendor, 28)); // nobody signed in: just the vendor's icon, dimmed
+    // Connected: the user's own picture from that server, else the first letter of their name, and always the
+    // vendor's small icon in the corner so you can tell the servers apart.
+    const who = (b.user || b.vendor).trim();
+    const corner = () => h('span', { class: 'vb-corner' }, vbadge(b.vendor, 12));
+    const letter = () => h('span', { class: 'letter', style: 'background:' + hueOf(who) }, (who[0] || '?').toUpperCase());
+    if (state.avatars[b.id] === 'none') return h('span', { class: 'face' }, letter(), corner());
     const img = h('img', { class: 'avatar', alt: '', src: '/api/avatar?' + qs({ acct: b.id, size: 64 }) });
     img.onload = () => { state.avatars[b.id] = 'ok'; };
-    img.onerror = () => { state.avatars[b.id] = 'none'; const f = img.closest('.face'); if (f) f.replaceChildren(fallback()); };
-    // a picture gets the vendor's small icon in its corner, so you still see which server it is
-    return h('span', { class: 'face' }, img, h('span', { class: 'vb-corner' }, vbadge(b.vendor, 12)));
+    img.onerror = () => { state.avatars[b.id] = 'none'; const f = img.closest('.face'); if (f) f.replaceChildren(letter(), corner()); };
+    return h('span', { class: 'face' }, img, corner());
   }
 
   function accountButton(b) {

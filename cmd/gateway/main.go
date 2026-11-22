@@ -23,6 +23,7 @@ func main() {
 	flag.StringVar(&cfg.PublicURL, "public-url", "http://localhost:8080", "URL browsers use to reach the gateway (must match the OIDC client's callback)")
 	flag.StringVar(&cfg.ClientID, "client-id", "odraz-demo", "OIDC client ID registered for the gateway (OpenCloud)")
 	flag.BoolVar(&cfg.Insecure, "insecure", false, "accept self-signed certificates, e.g. OpenCloud's demo one (demo only)")
+	flag.StringVar(&cfg.WebDir, "web-dir", "", "serve the page from this folder instead of the copy inside the binary: edit the page, refresh the browser (development)")
 	oc := flag.String("opencloud", "https://localhost:9200", "OpenCloud URL (empty: do not use OpenCloud)")
 	nc := flag.String("nextcloud", "", "Nextcloud URL, e.g. http://localhost:8082 (empty: do not use Nextcloud)")
 	ocUser := flag.String("opencloud-demo-user", "admin", "OpenCloud user for the one-click demo sign-in")
@@ -47,6 +48,9 @@ func main() {
 	}
 	if len(cfg.Backends) == 0 {
 		log.Fatal("no backend: give -opencloud and/or -nextcloud")
+	}
+	if cfg.WebDir != "" {
+		log.Printf("serving the page from %s (edits show on refresh; Go changes still need a restart)", cfg.WebDir)
 	}
 	for _, b := range cfg.Backends {
 		log.Printf("backend %s at %s (one-click demo sign-in: %v)", b.ID, b.URL, b.DemoToken != "")

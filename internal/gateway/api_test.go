@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	odraz "github.com/odrazdotxyz/odraz-go-sdk"
@@ -169,5 +172,32 @@ func TestUniqueName(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("name %d = %q, want %q (all: %v)", i, got[i], want[i], got)
 		}
+	}
+}
+
+// With WebDir the page comes from disk and an edit shows on the very next request: no restart.
+func TestWebDirServesFromDisk(t *testing.T) {
+	dir := t.TempDir()
+	write := func(s string) {
+		if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	get := func(s *Server) string {
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+		return rec.Body.String()
+	}
+	write("<p>one</p>")
+	live := New(Config{WebDir: dir, Backends: []Backend{{ID: "opencloud", Vendor: "opencloud", URL: "https://x"}}})
+	if got := get(live); !strings.Contains(got, "one") {
+		t.Fatalf("page = %q", got)
+	}
+	write("<p>two</p>")
+	if got := get(live); !strings.Contains(got, "two") {
+		t.Errorf("an edit must show without a restart, got %q", got)
+	}
+	if got := get(New(Config{Backends: []Backend{{ID: "opencloud", Vendor: "opencloud", URL: "https://x"}}})); !strings.Contains(got, "odrive demo") {
+		t.Errorf("without WebDir the embedded page is served, got %.80q", got)
 	}
 }
