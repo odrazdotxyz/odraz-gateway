@@ -500,16 +500,32 @@
         list.replaceChildren(h('div', { class: 'empty' }, 'Loading…'));
         bar.replaceChildren(...[['/', drive.name], ...dir.split('/').filter(Boolean).map((seg, i, a) => ['/' + a.slice(0, i + 1).join('/'), seg])].flatMap(([p, label], i) => [
           i ? h('span', { class: 'sep' }, icon('chevron', 14)) : '', h('button', { type: 'button', onclick: () => { dir = p; show(); } }, label)]));
-        useBtn.disabled = dir === '/'; useBtn.textContent = dir === '/' ? 'Open a folder first' : 'Use ' + dir;
+        useBtn.disabled = dir === '/'; useBtn.textContent = dir === '/' ? 'Open or create a folder' : 'Use ' + dir;
         try {
           const res = await api('/api/list?' + qs({ acct: drive.acct, drive: drive.id, path: dir }));
           const dirs = res.entries.filter((e) => e.isDir && !e.name.startsWith('.'));
+          if (!nameIn.value) nameIn.placeholder = dir === '/' && !dirs.some((e) => e.name === 'Photos') ? 'New folder name, e.g. Photos' : 'New folder name';
           list.replaceChildren(...(dirs.length ? dirs.map((e) => h('button', { type: 'button', class: 'frow', onclick: () => { dir = e.path; show(); } }, icon('folder', 16), e.name, icon('chevron', 14)))
             : [h('div', { class: 'empty' }, 'No folders here.')]));
         } catch (e) { list.replaceChildren(h('div', { class: 'empty' }, e.message)); }
       }
+      // Create a folder right here (no photos folder yet?) and go into it, ready to be used.
+      const nameIn = h('input', { type: 'text', placeholder: 'New folder name', 'aria-label': 'New folder name', onkeydown: (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); create(); } } });
+      const createBtn = h('button', { type: 'button', class: 'btn', onclick: () => create() }, icon('folderPlus'), 'Create');
+      async function create() {
+        const name = nameIn.value.trim();
+        if (!name) { nameIn.focus(); return; }
+        if (/[\/\\]/.test(name)) { toast('A folder name cannot contain / or \\', true); return; }
+        createBtn.disabled = true;
+        try {
+          await api('/api/mkdir?' + qs({ acct: drive.acct, drive: drive.id, path: join(dir, name) }), { method: 'POST' });
+          dir = join(dir, name); nameIn.value = '';
+          await show();
+        } catch (e) { fail(e); } finally { createBtn.disabled = false; }
+      }
       const form = h('form', { method: 'dialog', onsubmit: (ev) => { ev.preventDefault(); if (dir !== '/') { done({ drive, folder: dir, hide: hide.checked }); closeDialog(); } } },
         h('h2', {}, 'Choose your photos folder'), sel ? h('label', {}, 'Server', sel) : '', bar, list,
+        h('div', { class: 'newfolder' }, nameIn, createBtn),
         h('label', { class: 'check' }, hide, 'Hide this folder from Personal (it stays reachable with "Show hidden")'),
         h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn', onclick: () => closeDialog() }, 'Not now'), useBtn));
       show();

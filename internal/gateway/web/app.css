@@ -246,3 +246,5 @@ dialog .opt { margin-bottom: var(--space-2); }
 .seg .btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); margin-left: 0; }
 .seg .btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 .seg .btn[aria-pressed=true] { background: var(--selected); border-color: var(--accent); color: var(--accent); position: relative; z-index: 1; }
+.newfolder { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
+.newfolder input { flex: 1; }
