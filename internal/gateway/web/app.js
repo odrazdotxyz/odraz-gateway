@@ -370,8 +370,8 @@
   }
 
   // ---------- the side panel: two menus ----------
-  // "Drives" (the odrive icon): Personal, Teams, Shared. "Photos" (the ogram icon): Gallery and Folders. Each opens
-  // and closes; the choice is remembered.
+  // "Drives" (the odrive icon) is a menu with Personal, Teams and Shared; it opens and closes, and the choice is
+  // remembered. "Photos" (the ogram icon) is a single item next to it.
   function toggleNav(id) { state.navOpen[id] = !state.navOpen[id]; localStorage.setItem('navOpen', JSON.stringify(state.navOpen)); render(); }
 
   function navGroup(id, label, logo, items, hasActive) {
@@ -387,15 +387,13 @@
     const item = (on, ic, label, sub, fn) => h('button', { class: 'drive', 'aria-current': on ? 'true' : 'false', onclick: fn },
       h('span', { class: 'dn' }, icon(ic), label), sub ? h('small', {}, sub) : '');
     const drives = ['personal', 'teams', 'shared'].map((id) => { const c = catById(id); return item(inFiles && state.cat === id, c.icon, c.label, catSummary(c), () => openCat(id)); });
-    const inPhotos = inFiles && state.cat === 'photos';
-    const galleryOn = inPhotos && !state.loc && state.photoView === 'gallery';
-    const foldersOn = inPhotos && !galleryOn;
-    const showPhotos = (view) => { state.loc = null; setPhotoView(view); openCat('photos'); };
+    // Photos is not a menu: one item (the ogram icon). Gallery and Folders are the switch in its toolbar.
+    const photosOn = inFiles && state.cat === 'photos';
     return h('nav', { class: 'sidenav', 'aria-label': 'Library' },
       navGroup('drives', 'Drives', '/assets/favicon.svg', drives, inFiles && state.cat !== 'photos'),
-      navGroup('photos', 'Photos', '/assets/ogram-favicon.svg', [
-        item(galleryOn, 'image', 'Gallery', catSummary(catById('photos')), () => showPhotos('gallery')),
-        item(foldersOn, 'folder', 'Folders', '', () => showPhotos('folders'))], inPhotos));
+      h('button', { class: 'nhead nitem', 'aria-current': photosOn ? 'true' : 'false', onclick: () => openCat('photos') },
+        h('img', { class: 'nlogo', src: '/assets/ogram-favicon.svg', alt: '', width: 20, height: 20 }),
+        h('span', { class: 'nl' }, 'Photos', h('small', {}, catSummary(catById('photos'))))));
   }
 
   // ---------- storage usage ----------
