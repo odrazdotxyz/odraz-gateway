@@ -203,7 +203,7 @@ func TestWebDirServesFromDisk(t *testing.T) {
 	if got := get(live); !strings.Contains(got, "two") {
 		t.Errorf("an edit must show without a restart, got %q", got)
 	}
-	if got := get(New(Config{WebFS: vanilla.FS(), Backends: []Backend{{ID: "opencloud", Vendor: "opencloud", URL: "https://x"}}})); !strings.Contains(got, "Odraz demo") {
+	if got := get(New(Config{WebFS: vanilla.FS(), Backends: []Backend{{ID: "opencloud", Vendor: "opencloud", URL: "https://x"}}})); !strings.Contains(got, "Odraz") {
 		t.Errorf("without WebDir the embedded page is served, got %.80q", got)
 	}
 }

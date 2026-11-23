@@ -323,6 +323,11 @@ func (s *Server) ensureSession(w http.ResponseWriter, r *http.Request) *session 
 	if sess := s.lookup(r); sess != nil {
 		return sess
 	}
+	return s.newSession(w)
+}
+
+// newSession starts a session with a fresh random id and sets its cookie.
+func (s *Server) newSession(w http.ResponseWriter) *session {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, old := range s.sessions { // forget expired sessions
@@ -342,6 +347,28 @@ func (s *Server) ensureSession(w http.ResponseWriter, r *http.Request) *session 
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: id, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode,
 		Secure: len(s.cfg.PublicURL) > 5 && s.cfg.PublicURL[:5] == "https", MaxAge: int(sessionTTL / time.Second)})
 	return sess
+}
+
+// signInSession returns the session a sign-in should use. A browser that is not signed in yet always gets a NEW
+// session id at that moment (the old one is destroyed), so an id known to someone else beforehand, for example one
+// planted in the browser (session fixation), never becomes a signed-in session. A browser that is already signed
+// in keeps its session, so connecting a second server adds to it. keepPending carries a sign-in in progress (the
+// OIDC state) over to the new session.
+func (s *Server) signInSession(w http.ResponseWriter, r *http.Request, keepPending bool) *session {
+	old := s.lookup(r)
+	if old != nil && old.signedIn() {
+		return old
+	}
+	fresh := s.newSession(w)
+	if old != nil {
+		if keepPending {
+			old.mu.Lock()
+			fresh.pending, fresh.pendAcc, fresh.pendBE = old.pending, old.pendAcc, old.pendBE
+			old.mu.Unlock()
+		}
+		s.forget(r.Context(), old.id)
+	}
+	return fresh
 }
 
 func (sess *session) signedIn() bool {

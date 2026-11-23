@@ -1,4 +1,4 @@
-// Odraz demo UI: plain JavaScript, no build step. Talks to the gateway's JSON API.
+// Odraz reference UI: plain JavaScript, no build step. Talks to the gateway's JSON API (api/openapi.yaml).
 (() => {
   'use strict';
 
@@ -226,25 +226,49 @@
   });
 
   // ---------- views ----------
-  // The front door of the Odraz demo: Odraz, and one button. The demo is pre-wired to the servers it was started
-  // with. The real flow will start from the URL of YOUR server and let the server say how to sign in (the SDK
-  // discovers it), so no identity provider is advertised here. Only when no demo is set up does a server's own
-  // login (OIDC) appear, as the fallback, so the gateway stays usable.
+  // Sign in to a server with a user name and an app token (OpenCloud) or app password (Nextcloud): the gateway
+  // never sees the account password. `done` runs after a successful sign-in.
+  const secretLabel = (vendor) => (vendor === 'nextcloud' ? 'App password' : 'App token');
+  function signInForm(backends, done) {
+    const err = h('div', { class: 'err', role: 'alert' });
+    const sel = backends.length > 1 ? h('select', { 'aria-label': 'Server', onchange: () => relabel() }, backends.map((b) => h('option', { value: b.id }, vendorName(b.vendor) + (backends.filter((x) => x.vendor === b.vendor).length > 1 ? ' · ' + b.id : '')))) : null;
+    const user = h('input', { type: 'text', placeholder: 'User name', 'aria-label': 'User name', autocomplete: 'username', required: true });
+    const tok = h('input', { type: 'password', autocomplete: 'current-password', required: true });
+    const chosen = () => backends.find((b) => !sel || b.id === sel.value) || backends[0];
+    const relabel = () => { tok.placeholder = secretLabel(chosen().vendor); tok.setAttribute('aria-label', secretLabel(chosen().vendor)); };
+    relabel();
+    const btn = h('button', { class: 'btn primary' }, 'Sign in');
+    return h('form', { class: 'signin', onsubmit: async (ev) => {
+      ev.preventDefault(); err.textContent = ''; btn.disabled = true;
+      try {
+        await api('/auth/apptoken', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ backend: chosen().id, username: user.value.trim(), token: tok.value }) });
+        tok.value = ''; await done();
+      } catch (x) { err.textContent = x.status === 401 ? 'The server did not accept that user name and ' + secretLabel(chosen().vendor).toLowerCase() + '.' : x.message; btn.disabled = false; }
+    } }, sel || '', user, tok, btn, err);
+  }
+  function connectDialog(b) {
+    return openDialog((done) => {
+      const form = signInForm([b], async () => { closeDialog(); done(true); await boot(); });
+      return [h('h2', {}, 'Connect ' + vendorName(b.vendor)), form, h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn', onclick: () => closeDialog() }, 'Cancel'))];
+    });
+  }
+
   function loginView() {
     const err = h('div', { class: 'err', role: 'alert' });
-    const hasOidc = state.backends.some((b) => b.oidc);
+    const oidc = state.backends.filter((b) => b.oidc);
     const demo = state.demo ? h('button', { class: 'btn primary', onclick: async () => {
       err.textContent = '';
       try { await api('/auth/demo', { method: 'POST' }); await boot(); }
       catch (x) { err.textContent = x.message; }
     } }, 'Try the demo') : '';
-    const fallback = !state.demo && hasOidc ? [h('a', { class: 'btn primary', href: '/auth/login' }, 'Sign in'),
-      h('p', { class: 'fine' }, 'Signs in through the server\'s identity provider (Pocket ID in the demo setup uses passkeys: run ', h('code', {}, 'make login-link'), ' once to register one).')] : [];
+    const sso = oidc.map((b) => h('a', { class: 'btn' + (state.demo ? '' : ' primary'), href: '/auth/login?' + qs({ backend: b.id }) }, 'Sign in with ' + vendorName(b.vendor) + '\'s login'));
+    const hasForm = state.backends.length > 0;
+    const parts = [demo, ...sso].filter(Boolean);
     return h('div', { class: 'login' }, h('div', { class: 'corner' }, themeBtn()), h('div', { class: 'card' },
-      logo('logo', 'odraz'), h('h1', {}, 'Odraz demo'),
-      h('p', {}, 'Your files and photos from the servers you already use, in one place. Built on the Odraz SDK.'),
-      demo, ...fallback, err,
-      !state.demo && !hasOidc ? h('p', { class: 'fine' }, 'The demo is not set up on this gateway: start it with a demo token file (see the README).') : ''));
+      logo('logo', 'odraz'), h('h1', {}, 'Odraz'),
+      h('p', {}, 'Your files and photos from the servers you already use, in one place.'),
+      ...parts, err,
+      hasForm ? [parts.length ? h('div', { class: 'or' }, h('span', {}, 'or with a user name and an app password or token')) : '', signInForm(state.backends, boot)] : ''));
   }
 
   const catSummary = (c) => {
@@ -366,8 +390,8 @@
     const action = b.connected
       ? h('button', { class: 'mi', role: 'menuitem', onclick: () => run(() => api('/auth/disconnect?' + qs({ backend: b.id }), { method: 'POST' })) }, icon('unplug', 16), state.backends.filter((x) => x.connected).length === 1 ? 'Disconnect and sign out' : 'Disconnect')
       : b.demo ? h('button', { class: 'mi', role: 'menuitem', onclick: () => run(() => api('/auth/demo?' + qs({ backend: b.id }), { method: 'POST' })) }, icon('plug', 16), 'Connect')
-      : b.oidc ? h('a', { class: 'mi', role: 'menuitem', href: '/auth/login?' + qs({ backend: b.id }) }, icon('plug', 16), 'Connect')
-      : h('span', { class: 'mi off' }, 'Not available to connect here');
+      : [b.oidc ? h('a', { class: 'mi', role: 'menuitem', href: '/auth/login?' + qs({ backend: b.id }) }, icon('plug', 16), 'Connect with the login page') : '',
+        h('button', { class: 'mi', role: 'menuitem', onclick: () => { state.acctMenu = null; render(); connectDialog(b); } }, icon('plug', 16), 'Connect with an ' + secretLabel(b.vendor).toLowerCase())];
     return h('span', { class: 'acctmenu' },
       h('button', { class: 'acctbtn', title: vendorName(b.vendor) + (b.connected ? ' · ' + (b.user || 'connected') : ' · not connected'), 'aria-haspopup': 'menu', 'aria-expanded': String(open),
         'aria-label': vendorName(b.vendor) + (b.connected ? ', signed in as ' + (b.user || '') : ', not connected'),
@@ -465,7 +489,7 @@
     app.replaceChildren(state.me ? appView() : loginView());
     const main = app.querySelector('main');
     if (main && scroll) main.scrollTop = scroll;
-    document.title = (state.me ? catById(state.cat).label + ' · ' : '') + 'Odraz demo';
+    document.title = (state.me ? catById(state.cat).label + ' · ' : '') + 'Odraz';
   }
 
   // ---------- navigation ----------

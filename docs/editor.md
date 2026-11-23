@@ -51,8 +51,7 @@ the first person who opened it.
 | Neither | | no editor, no Edit action, nothing else changes |
 
 The environment wins. A user's own setting is write-only: the secret is never sent back to the page (the status call
-says only `secretSet: true`). **It is kept in the gateway's memory with the session**, so it is lost on restart until the
-persistent encrypted session store exists.
+says only `secretSet: true`). It is kept in the session store: with `-session-file` it survives a restart (encrypted); without, it is lost on restart, and Settings says so.
 
 | Environment | Flag | Meaning |
 |---|---|---|
@@ -77,28 +76,34 @@ persistent encrypted session store exists.
 * **Page policy.** The page's CSP allows scripts and frames from exactly the configured editor origin and nothing else.
   With no editor, `frame-src 'none'`. After a user saves their own address the page reloads so the policy applies.
 * **Separate listener.** With `-office-listen 0.0.0.0:8081` the editor's two routes are served there and **nowhere
-  else is reachable from that address**: not the API, not the page, not the demo login. Without it they share the main
+  else is reachable from that address**: not the API and not the page. Without it they share the main
   address (fine when the editor can reach the gateway's public URL).
 
 ## Networking
 
-The editor must reach the gateway and the gateway must reach the editor. The demo gateway listens on
-`127.0.0.1:8080`, which a container cannot reach, so `make run-office` adds the editor-only listener on `0.0.0.0:8081`
-and tells the editor to use `http://host.docker.internal:8081` (compose maps it with `extra_hosts: host-gateway`).
+The editor must reach the gateway and the gateway must reach the editor. A gateway that listens on
+`127.0.0.1:8080` cannot be reached from a container, so the Odraz demo adds the editor-only listener (`-office-listen 0.0.0.0:8081`)
+and tells the editor to use `http://host.docker.internal:8081` (`-office-gateway-url`) (compose maps it with `extra_hosts: host-gateway`).
 The container also needs `ALLOW_PRIVATE_IP_ADDRESS=true`, because the Docker host is a private address to it. In
 production put both behind one reverse proxy and domain (the editor under a path or sub-domain of the gateway's), and
 keep that setting off.
 
-## Running the demo editor
+## Running an editor to try it
 
-```
-make demo && make nextcloud     # the two servers, as usual
-make office                     # ONLYOFFICE Document Server on http://localhost:8083 (2.1 GB image, first start ~1 minute)
-make run-office                 # the gateway with both servers and the editor
-node scripts/editor-walkthrough.mjs light ./shots    # real browser, both servers (SKIPS when no editor is configured)
+```sh
+docker run -d -p 8083:80 -e JWT_ENABLED=true -e JWT_SECRET=change-me \
+  -e ALLOW_PRIVATE_IP_ADDRESS=true -e ALLOW_META_IP_ADDRESS=true --add-host host.docker.internal:host-gateway \
+  onlyoffice/documentserver                  # 2.1 GB image; ready when http://localhost:8083/healthcheck says true
+ODRAZ_OFFICE_URL=http://localhost:8083 ODRAZ_OFFICE_SECRET=change-me ODRAZ_OFFICE_LISTEN=0.0.0.0:8081 \
+ODRAZ_OFFICE_GATEWAY_URL=http://host.docker.internal:8081 \
+  odraz-gateway -backend '...'
 ```
 
-**Resources** (measured here with the demo load; ONLYOFFICE's own reference: 4 GB RAM, 2 GHz dual core, 40 GB disk,
+`ALLOW_PRIVATE_IP_ADDRESS` is only there because the editor calls the gateway on a private address; leave it off in
+production, where both sit behind one domain. The Odraz demo repository has a ready-made compose profile and a
+browser walkthrough that edits a `.docx` on OpenCloud and on Nextcloud.
+
+**Resources** (measured here; ONLYOFFICE's own reference: 4 GB RAM, 2 GHz dual core, 40 GB disk,
 4 GB swap, about 100 open documents on one 2.8 GHz core and 4 GB): the container used about 340 MiB idle after
 editing four documents, and peaked at about 1.24 GiB (cgroup peak, including start-up). I did **not** measure with memory
 caps of 512 MB, 1 GB and 2 GB, so whether it runs on a small VPS is unverified; the vendor figure says it will not fit

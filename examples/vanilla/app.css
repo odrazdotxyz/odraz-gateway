@@ -338,3 +338,9 @@ body.editing { overflow: hidden; }
 .scard form label { display: block; margin-bottom: var(--space-3); }
 .scard form input { width: 100%; margin-top: 4px; }
 .row.left { display: flex; gap: var(--space-2); justify-content: flex-start; margin-top: var(--space-2); }
+
+/* sign-in form */
+.signin { display: grid; gap: var(--space-3); margin-top: var(--space-3); }
+.signin input, .signin select { width: 100%; }
+.signin select { padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-control); background: var(--surface-raised); color: var(--ink); font: inherit; }
+dialog .signin { margin-top: 0; }

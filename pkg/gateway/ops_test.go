@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testServer(cfg Config) (*Server, *bytes.Buffer) {
@@ -133,5 +134,53 @@ func TestWithoutHookThereIsNoDemoRoute(t *testing.T) {
 	s.Handler().ServeHTTP(me, httptest.NewRequest("GET", "/api/v1/me", nil))
 	if strings.Contains(me.Body.String(), `"demo":true`) {
 		t.Error("/api/v1/me advertises a demo login")
+	}
+}
+
+// Session fixation: a session id that existed before sign-in must never become the signed-in session.
+func TestSignInGetsAFreshSessionID(t *testing.T) {
+	s, _ := testServer(Config{})
+	planted := &session{id: "planted", accts: map[string]*account{}, created: time.Now(), pending: []byte("oidc-state"), pendBE: Backend{ID: "nextcloud"}}
+	s.sessions["planted"] = planted
+	req := httptest.NewRequest("POST", "/auth/apptoken", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: "planted"})
+	rec := httptest.NewRecorder()
+	fresh := s.signInSession(rec, req, true)
+	if fresh == planted || fresh.id == "planted" {
+		t.Fatal("the planted session id was kept")
+	}
+	if _, ok := s.sessions["planted"]; ok {
+		t.Error("the old session still exists, so the planted id still works")
+	}
+	if string(fresh.pending) != "oidc-state" || fresh.pendBE.ID != "nextcloud" {
+		t.Error("a sign-in in progress must carry over")
+	}
+	var set *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == cookieName {
+			set = c
+		}
+	}
+	if set == nil || set.Value != fresh.id || set.Value == "planted" || !set.HttpOnly {
+		t.Errorf("cookie: %+v", set)
+	}
+	// without keepPending nothing is carried over
+	s.sessions["p2"] = &session{id: "p2", accts: map[string]*account{}, created: time.Now(), pending: []byte("x")}
+	req = httptest.NewRequest("POST", "/auth/apptoken", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: "p2"})
+	if f := s.signInSession(httptest.NewRecorder(), req, false); f.pending != nil {
+		t.Error("pending login carried over when not asked")
+	}
+	// a session that is already signed in is kept: connecting a second server adds to it
+	in := &session{id: "in", accts: map[string]*account{"x": {}}, created: time.Now()}
+	s.sessions["in"] = in
+	req = httptest.NewRequest("POST", "/auth/apptoken", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: "in"})
+	if got := s.signInSession(httptest.NewRecorder(), req, false); got != in {
+		t.Error("a signed-in session must be kept")
+	}
+	// no cookie at all: a new session
+	if f := s.signInSession(httptest.NewRecorder(), httptest.NewRequest("POST", "/auth/apptoken", nil), false); f == nil {
+		t.Error("no session created")
 	}
 }

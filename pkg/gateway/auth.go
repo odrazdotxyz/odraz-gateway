@@ -95,6 +95,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		authError(w, errors.New("no login in progress (the session expired, or the cookie was lost)"))
 		return
 	}
+	sess = s.signInSession(w, r, true) // a new session id for the signed-in session
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
@@ -147,7 +148,7 @@ func (s *Server) handleAppToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "unknown backend")
 		return
 	}
-	sess := s.ensureSession(w, r)
+	sess := s.signInSession(w, r, false)
 	if err := s.signInPassword(r.Context(), sess, be, in.Username, in.Token); err != nil {
 		writeError(w, err)
 		return
@@ -169,7 +170,7 @@ func (s *Server) handleDemo(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "demo login is not enabled")
 		return
 	}
-	sess := s.ensureSession(w, r)
+	sess := s.signInSession(w, r, false)
 	errs := map[string]string{}
 	connected := 0
 	for _, b := range targets {

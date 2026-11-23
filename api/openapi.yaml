@@ -167,7 +167,7 @@ paths:
     get:
       tags: [files]
       summary: Download a file
-      description: Streams the bytes. Supports a single `Range` (206) and HEAD-style probing. `inline=1` serves images, text, audio, video and PDF inline; anything else is a download. Active content (HTML, SVG) is sandboxed.
+      description: Streams the bytes. Supports a single `Range` (206) and HEAD-style probing. `inline=1` serves images, text, JSON, CSS/JS, HTML and mp4/webm/ogg video inline; any other type is a download. HTML and SVG are served in a sandbox so they cannot run in the gateway origin.
       parameters:
         - {$ref: "#/components/parameters/acct"}
         - {$ref: "#/components/parameters/drive"}
