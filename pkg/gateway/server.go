@@ -323,7 +323,9 @@ func (s *Server) ensureSession(w http.ResponseWriter, r *http.Request) *session 
 	if sess := s.lookup(r); sess != nil {
 		return sess
 	}
-	return s.newSession(w)
+	sess := s.newSession(w)
+	s.persist(sess)
+	return sess
 }
 
 // newSession starts a session with a fresh random id and sets its cookie.
@@ -343,7 +345,6 @@ func (s *Server) newSession(w http.ResponseWriter) *session {
 	id := base64.RawURLEncoding.EncodeToString(b)
 	sess := &session{id: id, store: s.store.Secrets(id), accts: map[string]*account{}, created: time.Now()}
 	s.sessions[id] = sess
-	go s.persist(sess)
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: id, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode,
 		Secure: len(s.cfg.PublicURL) > 5 && s.cfg.PublicURL[:5] == "https", MaxAge: int(sessionTTL / time.Second)})
 	return sess
@@ -363,11 +364,15 @@ func (s *Server) signInSession(w http.ResponseWriter, r *http.Request, keepPendi
 	if old != nil {
 		if keepPending {
 			old.mu.Lock()
-			fresh.pending, fresh.pendAcc, fresh.pendBE = old.pending, old.pendAcc, old.pendBE
+			pending, acc, be := old.pending, old.pendAcc, old.pendBE
 			old.mu.Unlock()
+			fresh.mu.Lock()
+			fresh.pending, fresh.pendAcc, fresh.pendBE = pending, acc, be
+			fresh.mu.Unlock()
 		}
 		s.forget(r.Context(), old.id)
 	}
+	s.persist(fresh)
 	return fresh
 }
 
