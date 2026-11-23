@@ -383,6 +383,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [ok]
                 properties:
                   ok: {type: boolean}
                   error: {type: string}

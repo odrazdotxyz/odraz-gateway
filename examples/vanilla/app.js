@@ -929,7 +929,8 @@
   const VIEWABLE = ['doc', 'rtf', 'xls', 'ppt', 'pdf'];
   function editKind(e) {
     if (!state.editor.configured || e.isDir || e.isSpace) return null;
-    const x = (e.name.split('.').pop() || '').toLowerCase();
+    const dot = e.name.lastIndexOf('.'); if (dot <= 0) return null; // no extension
+    const x = e.name.slice(dot + 1).toLowerCase();
     return EDITABLE.includes(x) ? 'edit' : VIEWABLE.includes(x) ? 'view' : null;
   }
   const loadScript = (src) => new Promise((ok, no) => {
