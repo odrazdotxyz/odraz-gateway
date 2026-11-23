@@ -57,6 +57,7 @@
     play: '<polygon points="6 3 20 12 6 21 6 3"/>',
     eyeOff: '<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/>',
     settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    fileEdit: '<path d="M12.5 22H18a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v9.5"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M13.38 15.63a1 1 0 1 0-3-3l-5.02 5.02a2 2 0 0 0-.5.85l-.84 2.87a.5.5 0 0 0 .62.62l2.87-.84a2 2 0 0 0 .85-.5z"/>',
     plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
     chevronDown: '<path d="m6 9 6 6 6-6"/>',
     plug: '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
@@ -102,6 +103,7 @@
     acctMenu: null, // id of the server whose top-bar menu is open
     avatars: {}, // per server: 'ok' | 'none' (so a missing avatar is asked for once, not on every redraw)
     settings: false, // the Settings page is showing
+    editor: { configured: false }, // the document editor (from /api/editor): never holds the secret
     sel: new Map(), anchor: null, // the selected files and folders, by key; the last one clicked (for shift-click ranges)
     photoView: localStorage.getItem('photoView') === 'folders' ? 'folders' : 'gallery' };
   const catById = (id) => CATS.find((c) => c.id === id) || CATS[0];
@@ -296,13 +298,14 @@
     const vendor = e.vendor || (d && d.vendor);
     return h('tr', { class: isSel(e) ? 'selected' : null },
       h('td', { class: 'sel' }, e.isSpace ? '' : h('input', { type: 'checkbox', checked: isSel(e), 'aria-label': 'Select ' + e.name, onclick: (ev) => { ev.stopPropagation(); toggleSel(e, ev); } })),
-      h('td', {}, h('button', { class: 'name', onclick: () => (e.isDir ? go({ acct: e.acct, drive: e.drive, path: e.path }) : preview(e)) },
+      h('td', {}, h('button', { class: 'name', onclick: () => (e.isDir ? go({ acct: e.acct, drive: e.drive, path: e.path }) : editKind(e) ? openEditor(e) : preview(e)) },
         h('span', { class: 'ic', 'aria-hidden': 'true' }, iconFor(e), vendor ? h('span', { class: 'vb-corner' }, vbadge(vendor, 12)) : ''),
         h('span', { class: 't' }, e.name))),
       h('td', { class: 'muted num' }, e.isSpace ? (e.used != null ? fmtSize(e.used) : '') : e.isDir ? '' : fmtSize(e.size)),
       h('td', { class: 'muted mod' }, fmtDate(e.modTime)),
       h('td', { class: 'actions' }, e.isSpace ? '' : [
         e.isDir ? '' : btn('Download', icon('download'), () => { location.href = fileUrl(e); }),
+        editKind(e) ? btn(editKind(e) === 'edit' && !ro ? 'Edit' : 'Open in editor', icon('fileEdit'), () => openEditor(e)) : '',
         btn('Rename', icon('pencil'), () => rename(e), ro), btn('Move', icon('move'), () => moveOrCopy(e, 'move'), ro),
         btn('Copy', icon('copy'), () => moveOrCopy(e, 'copy'), ro), btn('Delete', icon('trash'), () => remove(e), ro)]));
   }
@@ -789,7 +792,38 @@
   function openSettingsPage() {
     clearSel(); state.menuOpen = false; state.acctMenu = null; state.settings = true;
     history.pushState(null, '', hashOf()); render();
-    refreshMappings().then(() => { if (state.settings) render(); });
+    Promise.all([refreshMappings(), refreshEditor()]).then(() => { if (state.settings) render(); });
+  }
+
+  // The document editor: the operator's setting (shown read-only) or the user's own. The secret is write-only.
+  function editorSettings() {
+    const ed = state.editor;
+    const result = h('p', { class: 'meta', role: 'status' });
+    const check = h('button', { type: 'button', class: 'btn small', onclick: async () => {
+      result.textContent = 'Checking…';
+      try { const r = await api('/api/editor/check', { method: 'POST' }); result.textContent = r.ok ? 'Connected: the editor answers and accepts the secret.' : (r.error || 'Not working.'); }
+      catch (x) { result.textContent = x.message; }
+    } }, 'Check connection');
+    if (ed.locked) {
+      return h('section', { class: 'scard' }, h('h2', {}, 'Document editor'),
+        h('p', { class: 'meta' }, 'Managed by your administrator. Word, spreadsheet, presentation and PDF files open in the editor at ', h('code', {}, ed.url), '.'),
+        h('div', { class: 'row left' }, check), result);
+    }
+    const url = h('input', { type: 'text', value: ed.url || '', placeholder: 'https://office.example.com', 'aria-label': 'Editor server address', autocomplete: 'off' });
+    const secret = h('input', { type: 'password', placeholder: ed.secretSet ? 'Saved (leave empty to keep it)' : 'The editor\'s JWT secret', 'aria-label': 'Editor secret', autocomplete: 'off' });
+    const save = async (ev) => {
+      ev.preventDefault();
+      try {
+        await api('/api/editor', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: url.value, secret: secret.value }) });
+        location.reload(); // the page's security policy names the editor's address: reload so it takes effect
+      } catch (x) { result.textContent = x.message; }
+    };
+    return h('section', { class: 'scard' }, h('h2', {}, 'Document editor'),
+      h('p', { class: 'meta' }, 'Open and edit Word, Excel, PowerPoint, OpenDocument and text files from any server, and view PDFs. You run the editor (an ONLYOFFICE Document Server) yourself; give its address and the secret it signs with. Documents are saved back to the server they came from. The secret stays on the gateway and is never sent back to this page. It is kept in memory, so it is lost when the gateway restarts.'),
+      h('form', { onsubmit: save }, h('label', {}, 'Editor server', url), h('label', {}, 'Secret', secret),
+        h('div', { class: 'row left' }, h('button', { class: 'btn primary' }, 'Save'),
+          ed.url ? h('button', { type: 'button', class: 'btn', onclick: async () => { try { await api('/api/editor', { method: 'DELETE' }); location.reload(); } catch (x) { fail(x); } } }, 'Remove') : '',
+          ed.configured ? check : ''), result));
   }
 
   function settingsView() {
@@ -813,7 +847,8 @@
         state.problems.length ? h('p', { class: 'meta' }, 'A server has a .odraz/manifest.json this page cannot read (invalid, or written by a newer client). It is left untouched.') : '',
         drives.length === 0 ? h('p', { class: 'meta' }, 'Connect a server first (the round buttons in the top bar).')
           : unmapped.length ? h('div', { class: 'row left' }, h('button', { type: 'button', class: 'btn', onclick: () => chooseFolder() },
-            icon('folderPlus'), rows.length ? 'Add a folder on ' + (unmapped.length === 1 ? driveLabel(unmapped[0]) : 'another server') : 'Choose folder…')) : ''));
+            icon('folderPlus'), rows.length ? 'Add a folder on ' + (unmapped.length === 1 ? driveLabel(unmapped[0]) : 'another server') : 'Choose folder…')) : ''),
+      editorSettings());
   }
 
   // ---------- choosing where something goes ----------
@@ -861,6 +896,63 @@
       setTimeout(() => { input.focus(); input.select(); }, 0);
       return [form];
     });
+  }
+
+  // ---------- the document editor ----------
+  // The gateway hosts an editor server (ONLYOFFICE Document Server) that the operator or the user set up. Files of
+  // every server open in it and are saved back to where they came from. Types must match internal/editor.
+  const EDITABLE = ['docx', 'odt', 'txt', 'xlsx', 'ods', 'csv', 'pptx', 'odp'];
+  const VIEWABLE = ['doc', 'rtf', 'xls', 'ppt', 'pdf'];
+  function editKind(e) {
+    if (!state.editor.configured || e.isDir || e.isSpace) return null;
+    const x = (e.name.split('.').pop() || '').toLowerCase();
+    return EDITABLE.includes(x) ? 'edit' : VIEWABLE.includes(x) ? 'view' : null;
+  }
+  const loadScript = (src) => new Promise((ok, no) => {
+    if (document.querySelector('script[data-oo="' + src + '"]')) return ok();
+    const t = h('script', { src, 'data-oo': src, onload: () => ok(), onerror: () => no(new Error('Could not load the editor from its server. Is it running, and is its address right?')) });
+    document.head.append(t);
+  });
+  async function refreshEditor() {
+    try { state.editor = await api('/api/editor'); } catch { state.editor = { configured: false }; }
+  }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let editorOpen = false;
+  async function openEditor(e) {
+    if (editorOpen) return;
+    editorOpen = true;
+    let session, editor;
+    try {
+      session = await api('/api/editor/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acct: e.acct, drive: e.drive, path: e.path }) });
+      await loadScript(session.script);
+    } catch (x) { editorOpen = false; return fail(x.status === 415 ? new Error('The editor cannot open this kind of file.') : x); }
+    const host = h('div', { id: 'oo-host' });
+    const close = async () => {
+      try { editor && editor.destroyEditor(); } catch { /* already gone */ }
+      view.remove(); document.body.classList.remove('editing'); editorOpen = false;
+      if (session.mode !== 'edit') return;
+      // The editor reports the save about ten seconds after the last person closes the document: wait for it.
+      toast('Saving ' + e.name + '…');
+      for (let i = 0; i < 30; i++) {
+        await sleep(2000);
+        let st; try { st = await api('/api/editor/session?' + qs({ id: session.id })); } catch { return; }
+        if (st.state === 'open') continue;
+        if (st.state === 'saved') toast('Saved ' + e.name);
+        else if (st.state === 'unchanged') toast('No changes to ' + e.name);
+        else if (st.state === 'conflict') toast('“' + e.name + '” changed while you were editing. Your version was saved as ' + baseOf(st.savedTo) + '.', true);
+        else if (st.state === 'error') toast('Could not save ' + e.name + (st.message ? ': ' + st.message : '') , true);
+        if (state.me) load();
+        return;
+      }
+      toast('Still saving ' + e.name + '. Refresh in a moment.');
+    };
+    const view = h('div', { class: 'editor-view', role: 'dialog', 'aria-label': 'Editing ' + e.name },
+      h('div', { class: 'ebar' }, h('b', {}, e.name), h('span', { class: 'meta' }, (session.mode === 'edit' ? 'Editing' : 'View only') + ' · saved to ' + vendorName(e.vendor || (driveBy(e.acct, e.drive) || {}).vendor)),
+        h('span', { class: 'spacer' }), h('button', { class: 'btn primary', onclick: close }, 'Close')),
+      host);
+    document.body.classList.add('editing'); document.body.append(view);
+    try { editor = new window.DocsAPI.DocEditor('oo-host', { ...session.config, width: '100%', height: '100%' }); }
+    catch (x) { fail(x); view.remove(); document.body.classList.remove('editing'); editorOpen = false; }
   }
 
   // ---------- actions ----------
@@ -981,7 +1073,7 @@
       const res = await api('/api/drives');
       state.drives = sortDrives(res.drives);
       Object.entries(res.errors || {}).forEach(([k, v]) => fail(new Error(k + ': ' + v)));
-      await refreshMappings();
+      await Promise.all([refreshMappings(), refreshEditor()]);
       readHash();
       history.replaceState(null, '', hashOf());
       await load();

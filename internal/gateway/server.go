@@ -47,6 +47,8 @@ type Config struct {
 	// copy compiled into the binary, so edits to the page show up on a browser refresh without restarting the
 	// gateway. For development; leave it empty for the self-contained binary.
 	WebDir string
+	// Office configures the document editor (see OfficeConfig). Leave it empty and users may set their own.
+	Office OfficeConfig
 }
 
 // Server is the gateway's http.Handler.
@@ -56,6 +58,9 @@ type Server struct {
 
 	mu       sync.Mutex
 	sessions map[string]*session
+
+	editMu sync.Mutex
+	edits  map[string]*editSession // open documents, by their unguessable id
 }
 
 const (
@@ -81,12 +86,13 @@ type session struct {
 	pending *oidc.Session       // browser login in progress
 	pendAcc accounts.Account
 	pendBE  Backend
+	office  officeSettings // the user's own editor server (memory only, like the session)
 	created time.Time
 }
 
 // New builds the gateway.
 func New(cfg Config) *Server {
-	s := &Server{cfg: cfg, mux: http.NewServeMux(), sessions: map[string]*session{}}
+	s := &Server{cfg: cfg, mux: http.NewServeMux(), sessions: map[string]*session{}, edits: map[string]*editSession{}}
 	web, _ := fs.Sub(webFS, "web")
 	if cfg.WebDir != "" {
 		web = os.DirFS(cfg.WebDir)
@@ -116,6 +122,16 @@ func New(cfg Config) *Server {
 	s.mux.HandleFunc("POST /api/move", s.csrf(s.authed(s.handleMove)))
 	s.mux.HandleFunc("POST /api/copy", s.csrf(s.authed(s.handleCopy)))
 	s.mux.HandleFunc("DELETE /api/entry", s.csrf(s.authed(s.handleDelete)))
+
+	s.mux.HandleFunc("GET /api/editor", s.authed(s.handleEditorGet))
+	s.mux.HandleFunc("PUT /api/editor", s.csrf(s.authed(s.handleEditorPut)))
+	s.mux.HandleFunc("DELETE /api/editor", s.csrf(s.authed(s.handleEditorDelete)))
+	s.mux.HandleFunc("POST /api/editor/check", s.csrf(s.authed(s.handleEditorCheck)))
+	s.mux.HandleFunc("POST /api/editor/session", s.csrf(s.authed(s.handleEditorSession)))
+	s.mux.HandleFunc("GET /api/editor/session", s.authed(s.handleEditorState))
+	if cfg.Office.Listen == "" { // the editor reaches us on the main address
+		s.officeRoutes(s.mux)
+	}
 	return s
 }
 
@@ -125,7 +141,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Set("Referrer-Policy", "same-origin")
 	h.Set("X-Frame-Options", "DENY")
 	if r.URL.Path == "/" || r.URL.Path == "/index.html" {
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'")
+		script, frame := "'self'", "'none'"
+		if o := s.officeOrigin(r); o != "" { // exactly the configured editor server may load its script and be framed
+			script, frame = "'self' "+o, o
+		}
+		h.Set("Content-Security-Policy", "default-src 'self'; script-src "+script+"; frame-src "+frame+"; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'")
 	}
 	s.mux.ServeHTTP(w, r)
 }

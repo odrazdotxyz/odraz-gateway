@@ -327,3 +327,14 @@ tr.selected:hover td { background: var(--selected); }
 .nhead[aria-expanded=false] svg.i { transform: rotate(-90deg); }
 .nitems { margin: 2px 0 var(--space-2) 19px; padding-left: var(--space-2); border-left: 1px solid var(--border-subtle); }
 .nitem[aria-current=true] { background: var(--hover); }
+
+/* document editor */
+.editor-view { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; background: var(--surface-page); }
+.editor-view .ebar { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--border-subtle); background: var(--surface-raised); }
+.editor-view .ebar .spacer { flex: 1; }
+.editor-view #oo-host, .editor-view iframe { flex: 1; width: 100%; border: 0; min-height: 0; }
+body.editing { overflow: hidden; }
+.scard + .scard { margin-top: var(--space-4); }
+.scard form label { display: block; margin-bottom: var(--space-3); }
+.scard form input { width: 100%; margin-top: 4px; }
+.row.left { display: flex; gap: var(--space-2); justify-content: flex-start; margin-top: var(--space-2); }
