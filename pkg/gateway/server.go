@@ -7,6 +7,7 @@
 package gateway
 
 import (
+	"context"
 	"crypto/rand"
 	"embed"
 	"encoding/base64"
@@ -14,11 +15,11 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/odrazdotxyz/odraz-go-sdk/accounts"
-	"github.com/odrazdotxyz/odraz-go-sdk/accounts/oidc"
 	"github.com/odrazdotxyz/odraz-go-sdk/files"
 
 	_ "github.com/odrazdotxyz/odraz-go-sdk/vendors/nextcloud" // registers the "nextcloud" adapter
@@ -54,7 +55,10 @@ type Config struct {
 	// gateway. For development; leave it empty for the self-contained binary.
 	WebDir string
 	// DemoLogin, if set, enables "Try the demo" (POST /auth/demo). See DemoLogin.
-	DemoLogin  DemoLogin
+	DemoLogin DemoLogin
+	// Store keeps sessions and their tokens. Default: in memory (lost on restart). Use NewFileStore for a
+	// persistent, encrypted one.
+	Store      Store
 	Listen     string // address to listen on for Run, default 127.0.0.1:8080
 	TrustProxy bool   // behind a reverse proxy: take the client address from the last X-Forwarded-For entry
 	Limits     Limits
@@ -71,10 +75,12 @@ type Server struct {
 	mu       sync.Mutex
 	sessions map[string]*session
 
-	log       *slog.Logger
-	limits    Limits
-	authLimit rateLimiter
-	apiLimit  rateLimiter
+	store      Store
+	persistent bool // the Store survives a restart
+	log        *slog.Logger
+	limits     Limits
+	authLimit  rateLimiter
+	apiLimit   rateLimiter
 
 	routes []string // every API route pattern ("GET /api/v1/me"), for the test that keeps api/openapi.yaml in step
 
@@ -99,10 +105,11 @@ type account struct {
 }
 
 type session struct {
+	id      string
 	mu      sync.Mutex
-	store   *accounts.MemoryStore
-	accts   map[string]*account // by backend ID
-	pending *oidc.Session       // browser login in progress
+	store   accounts.SecretStore // this session's tokens, in the gateway's Store
+	accts   map[string]*account  // by backend ID
+	pending []byte               // the browser sign-in in progress: the SDK's saved OIDC session
 	pendAcc accounts.Account
 	pendBE  Backend
 	office  officeSettings // the user's own editor server (memory only, like the session)
@@ -117,7 +124,13 @@ func New(cfg Config) *Server {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	}
-	s := &Server{cfg: cfg, log: cfg.Logger, limits: cfg.Limits.withDefaults(), mux: http.NewServeMux(), sessions: map[string]*session{}, edits: map[string]*editSession{}}
+	if cfg.Store == nil {
+		cfg.Store = NewMemoryStore()
+	}
+	s := &Server{cfg: cfg, store: cfg.Store, log: cfg.Logger, limits: cfg.Limits.withDefaults(), mux: http.NewServeMux(), sessions: map[string]*session{}, edits: map[string]*editSession{}}
+	if p, ok := cfg.Store.(interface{ Persistent() bool }); ok {
+		s.persistent = p.Persistent()
+	}
 	web, _ := fs.Sub(webFS, "web")
 	if cfg.WebDir != "" {
 		web = os.DirFS(cfg.WebDir)
@@ -220,16 +233,86 @@ func (s *Server) authed(next func(http.ResponseWriter, *http.Request, *session))
 
 func (s *Server) lookup(r *http.Request) *session {
 	c, err := r.Cookie(cookieName)
-	if err != nil {
+	if err != nil || c.Value == "" {
 		return nil
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	sess := s.sessions[c.Value]
+	s.mu.Unlock()
+	if sess == nil { // not in memory: after a restart, the Store may still have it
+		sess = s.restore(r.Context(), c.Value)
+	}
 	if sess != nil && time.Since(sess.created) > sessionTTL {
-		delete(s.sessions, c.Value)
+		s.forget(r.Context(), c.Value)
 		return nil
 	}
+	return sess
+}
+
+// forget removes a session from memory and from the Store.
+func (s *Server) forget(ctx context.Context, id string) {
+	s.mu.Lock()
+	delete(s.sessions, id)
+	s.mu.Unlock()
+	if err := s.store.Delete(ctx, id); err != nil {
+		s.log.Error("session store: delete", "error", err.Error())
+	}
+}
+
+// persist writes the session's durable state to the Store. A failure is logged and does not fail the request: the
+// session keeps working from memory, and the next change tries again.
+func (s *Server) persist(sess *session) {
+	sess.mu.Lock()
+	d := SessionData{ID: sess.id, Created: sess.created, OfficeURL: sess.office.URL, OfficeSecret: sess.office.Secret}
+	for _, a := range sess.accts {
+		d.Accounts = append(d.Accounts, AccountRecord{Backend: a.backend.ID, Account: a.acc, Method: a.method, User: a.user})
+	}
+	sort.Slice(d.Accounts, func(i, j int) bool { return d.Accounts[i].Backend < d.Accounts[j].Backend })
+	if sess.pending != nil {
+		d.Pending = &PendingLogin{Backend: sess.pendBE.ID, Account: sess.pendAcc, OIDC: sess.pending}
+	}
+	sess.mu.Unlock()
+	if err := s.store.Save(context.Background(), &d); err != nil {
+		s.log.Error("session store: save", "error", err.Error())
+	}
+}
+
+// restore rebuilds a session from the Store after a restart: the tokens are already there, the live connections
+// are opened again. A server that cannot be reached right now is left out of this session, not dropped from the Store.
+func (s *Server) restore(ctx context.Context, id string) *session {
+	d, err := s.store.Load(ctx, id)
+	if err != nil || d == nil {
+		if err != nil {
+			s.log.Error("session store: load", "error", err.Error())
+		}
+		return nil
+	}
+	sess := &session{id: id, store: s.store.Secrets(id), accts: map[string]*account{}, created: d.Created,
+		office: officeSettings{URL: d.OfficeURL, Secret: d.OfficeSecret}}
+	for _, rec := range d.Accounts {
+		be, ok := s.backend(rec.Backend)
+		if !ok {
+			continue // no longer configured
+		}
+		a, err := s.open(ctx, sess, be, rec.Account, rec.Method, rec.User)
+		if err != nil {
+			s.log.Warn("session restore: server not available", "backend", be.ID, "error", err.Error())
+			continue
+		}
+		sess.accts[be.ID] = a
+	}
+	if d.Pending != nil {
+		if be, ok := s.backend(d.Pending.Backend); ok {
+			sess.pending, sess.pendAcc, sess.pendBE = d.Pending.OIDC, d.Pending.Account, be
+		}
+	}
+	s.mu.Lock()
+	if cur := s.sessions[id]; cur != nil { // a concurrent request restored it first
+		s.mu.Unlock()
+		return cur
+	}
+	s.sessions[id] = sess
+	s.mu.Unlock()
 	return sess
 }
 
@@ -246,13 +329,15 @@ func (s *Server) ensureSession(w http.ResponseWriter, r *http.Request) *session 
 			delete(s.sessions, id)
 		}
 	}
+	_ = s.store.Sweep(context.Background(), time.Now().Add(-sessionTTL))
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		panic(err)
 	}
 	id := base64.RawURLEncoding.EncodeToString(b)
-	sess := &session{store: accounts.NewMemoryStore(), accts: map[string]*account{}, created: time.Now()}
+	sess := &session{id: id, store: s.store.Secrets(id), accts: map[string]*account{}, created: time.Now()}
 	s.sessions[id] = sess
+	go s.persist(sess)
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: id, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode,
 		Secure: len(s.cfg.PublicURL) > 5 && s.cfg.PublicURL[:5] == "https", MaxAge: int(sessionTTL / time.Second)})
 	return sess
@@ -276,9 +361,7 @@ func (s *Server) backend(id string) (Backend, bool) {
 
 func (s *Server) dropSession(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(cookieName); err == nil {
-		s.mu.Lock()
-		delete(s.sessions, c.Value)
-		s.mu.Unlock()
+		s.forget(r.Context(), c.Value)
 	}
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
 }

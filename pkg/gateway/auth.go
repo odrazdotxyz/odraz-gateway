@@ -76,9 +76,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		authError(w, fmt.Errorf("could not start the login: %w", err))
 		return
 	}
+	saved, err := pending.Marshal()
+	if err != nil {
+		authError(w, err)
+		return
+	}
 	sess.mu.Lock()
-	sess.pendAcc, sess.pendBE, sess.pending = acc, be, pending
+	sess.pendAcc, sess.pendBE, sess.pending = acc, be, saved
 	sess.mu.Unlock()
+	s.persist(sess)
 	http.Redirect(w, r, pending.AuthorizationURL, http.StatusFound)
 }
 
@@ -93,8 +99,18 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	sess.mu.Lock()
-	pending, acc, be := sess.pending, sess.pendAcc, sess.pendBE
+	saved, acc, be := sess.pending, sess.pendAcc, sess.pendBE
 	sess.mu.Unlock()
+	h, err := accounts.Open(ctx, acc, sess.store) // for the HTTP client that trusts this backend's certificate
+	if err != nil {
+		authError(w, err)
+		return
+	}
+	pending, err := oidc.Resume(saved, oidc.HTTPClient(h.Env))
+	if err != nil {
+		authError(w, err)
+		return
+	}
 	tokens, err := pending.Complete(ctx, s.cfg.PublicURL+r.URL.RequestURI())
 	if err != nil {
 		authError(w, err)
@@ -108,6 +124,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 	sess.mu.Lock()
 	sess.pending = nil
 	sess.mu.Unlock()
+	// connect persists the session, with the pending login gone
 	if err := s.connect(ctx, sess, be, acc, "oidc", idTokenName(tokens.IDToken)); err != nil {
 		authError(w, err)
 		return
@@ -208,6 +225,8 @@ func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 		_ = sess.store.Delete(r.Context(), id)
 		if left == 0 {
 			s.dropSession(w, r)
+		} else {
+			s.persist(sess)
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -220,21 +239,31 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 // connect opens the account, gets its files client from the SDK and adds it to the session.
 func (s *Server) connect(ctx context.Context, sess *session, be Backend, acc accounts.Account, method, user string) error {
-	h, err := accounts.Open(ctx, acc, sess.store)
+	a, err := s.open(ctx, sess, be, acc, method, user)
 	if err != nil {
 		return err
 	}
-	cl, err := files.ForAccount(ctx, h)
-	if err != nil {
-		return err
-	}
-	if _, err := cl.Drives(ctx); err != nil { // proves the credentials work (and the server accepts them)
+	if _, err := a.client.Drives(ctx); err != nil { // proves the credentials work (and the server accepts them)
 		return err
 	}
 	sess.mu.Lock()
-	sess.accts[be.ID] = &account{backend: be, acc: acc, method: method, user: user, handle: h, client: cl, drives: map[string]files.FS{}}
+	sess.accts[be.ID] = a
 	sess.mu.Unlock()
+	s.persist(sess)
 	return nil
+}
+
+// open builds the live connection for an account whose credentials are in the session's secret store.
+func (s *Server) open(ctx context.Context, sess *session, be Backend, acc accounts.Account, method, user string) (*account, error) {
+	h, err := accounts.Open(ctx, acc, sess.store)
+	if err != nil {
+		return nil, err
+	}
+	cl, err := files.ForAccount(ctx, h)
+	if err != nil {
+		return nil, err
+	}
+	return &account{backend: be, acc: acc, method: method, user: user, handle: h, client: cl, drives: map[string]files.FS{}}, nil
 }
 
 type backendJSON struct {

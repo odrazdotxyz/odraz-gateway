@@ -87,6 +87,7 @@ func main() {
 	flag.Int64Var(&cfg.Limits.MaxUploadBytes, "max-upload-bytes", 0, "largest upload in bytes (default 5 GiB)")
 	flag.IntVar(&cfg.Limits.AuthPerMinute, "auth-rate", 0, "sign-in attempts per minute per client address (default 20, -1 off)")
 	flag.IntVar(&cfg.Limits.APIPerMinute, "api-rate", 0, "API calls per minute per client address (default 6000, -1 off)")
+	sessionFile := flag.String("session-file", env("SESSION_FILE"), "keep sessions and tokens in this encrypted file so they survive a restart (needs ODRAZ_SESSION_KEY); env ODRAZ_SESSION_FILE")
 	flag.StringVar(&cfg.Office.URL, "office-url", env("OFFICE_URL"), "document editor server for everyone (env ODRAZ_OFFICE_URL); empty: users may set their own")
 	flag.StringVar(&cfg.Office.Secret, "office-secret", env("OFFICE_SECRET"), "the editor's JWT secret; prefer the env ODRAZ_OFFICE_SECRET (a flag shows in the process list)")
 	flag.BoolVar(&cfg.Office.AllowPrivate, "office-allow-private", envBool("OFFICE_ALLOW_PRIVATE"), "let users' own editor URLs point at private addresses (Docker); env ODRAZ_OFFICE_ALLOW_PRIVATE")
@@ -119,6 +120,20 @@ func main() {
 	}
 	if cfg.Office.URL != "" && cfg.Office.Secret == "" {
 		fatal(log, fmt.Errorf("-office-url needs the editor's secret: set ODRAZ_OFFICE_SECRET"))
+	}
+
+	switch {
+	case *sessionFile != "":
+		k, err := gateway.ParseKey(env("SESSION_KEY"))
+		if err != nil {
+			fatal(log, fmt.Errorf("-session-file needs ODRAZ_SESSION_KEY: %w", err))
+		}
+		if cfg.Store, err = gateway.NewFileStore(*sessionFile, k); err != nil {
+			fatal(log, err)
+		}
+		log.Info("sessions are kept in an encrypted file", "file", *sessionFile)
+	default:
+		log.Warn("sessions are kept in memory only: every restart signs everyone out and forgets their editor settings (set -session-file and ODRAZ_SESSION_KEY)")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)

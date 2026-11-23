@@ -819,7 +819,7 @@
       } catch (x) { result.textContent = x.message; }
     };
     return h('section', { class: 'scard' }, h('h2', {}, 'Document editor'),
-      h('p', { class: 'meta' }, 'Open and edit Word, Excel, PowerPoint, OpenDocument and text files from any server, and view PDFs. You run the editor (an ONLYOFFICE Document Server) yourself; give its address and the secret it signs with. Documents are saved back to the server they came from. The secret stays on the gateway and is never sent back to this page. It is kept in memory, so it is lost when the gateway restarts.'),
+      h('p', { class: 'meta' }, 'Open and edit Word, Excel, PowerPoint, OpenDocument and text files from any server, and view PDFs. You run the editor (an ONLYOFFICE Document Server) yourself; give its address and the secret it signs with. Documents are saved back to the server they came from. The secret stays on the gateway and is never sent back to this page.' + (ed.persistent ? '' : ' It is kept in memory, so it is lost when the gateway restarts.')),
       h('form', { onsubmit: save }, h('label', {}, 'Editor server', url), h('label', {}, 'Secret', secret),
         h('div', { class: 'row left' }, h('button', { class: 'btn primary' }, 'Save'),
           ed.url ? h('button', { type: 'button', class: 'btn', onclick: async () => { try { await api('/api/v1/editor', { method: 'DELETE' }); location.reload(); } catch (x) { fail(x); } } }, 'Remove') : '',

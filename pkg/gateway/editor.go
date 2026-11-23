@@ -120,7 +120,7 @@ func (s *Server) officeOrigin(r *http.Request) string {
 
 func (s *Server) editorStatus(sess *session) map[string]any {
 	st, locked, ok := s.officeFor(sess)
-	out := map[string]any{"configured": ok, "locked": locked, "provider": "onlyoffice", "persistent": false}
+	out := map[string]any{"configured": ok, "locked": locked, "provider": "onlyoffice", "persistent": s.persistent}
 	if st.URL != "" {
 		out["url"] = st.URL
 	}
@@ -167,6 +167,7 @@ func (s *Server) handleEditorPut(w http.ResponseWriter, r *http.Request, sess *s
 	sess.mu.Lock()
 	sess.office = officeSettings{URL: u.String(), Secret: secret}
 	sess.mu.Unlock()
+	s.persist(sess)
 	writeJSON(w, http.StatusOK, s.editorStatus(sess))
 }
 
@@ -178,6 +179,7 @@ func (s *Server) handleEditorDelete(w http.ResponseWriter, r *http.Request, sess
 	sess.mu.Lock()
 	sess.office = officeSettings{}
 	sess.mu.Unlock()
+	s.persist(sess)
 	writeJSON(w, http.StatusOK, s.editorStatus(sess))
 }
 
