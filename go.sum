@@ -1,5 +1,5 @@
-github.com/odrazdotxyz/odraz-go-sdk v0.0.0-20261122182944-cfda29aa0a20 h1:tlM8VpJ1u0RIBtheBvdTOfq1Utb+f7mj441gNfP+p4Q=
-github.com/odrazdotxyz/odraz-go-sdk v0.0.0-20261122182944-cfda29aa0a20/go.mod h1:BQ3HSKSWV1vYdzagojY4sz6mOLp1bbXEhDEclOa7HRs=
+github.com/odrazdotxyz/odraz-go-sdk v0.0.0-20261123170732-58bb06a95044 h1:5RhkgvtsiXP+x3N4JY5xJDoC/VhcxxYAlW8TmKrQSSs=
+github.com/odrazdotxyz/odraz-go-sdk v0.0.0-20261123170732-58bb06a95044/go.mod h1:BQ3HSKSWV1vYdzagojY4sz6mOLp1bbXEhDEclOa7HRs=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 h1:yhCVgyC4o1eVCa2tZl7eS0r+SDo693bJlVdllGtEeKM=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=

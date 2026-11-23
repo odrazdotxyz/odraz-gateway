@@ -5,7 +5,7 @@
 | Component | Licence | Notes |
 |---|---|---|
 | Go standard library | BSD-3-Clause | |
-| [odraz-go-sdk](https://github.com/odrazdotxyz/odraz-go-sdk) | Apache-2.0 (to be confirmed in that repository's LICENSE file) | the only runtime dependency |
+| [odraz-go-sdk](https://github.com/odrazdotxyz/odraz-go-sdk) | Apache-2.0 | the only runtime dependency |
 | gopkg.in/yaml.v3 | MIT and Apache-2.0 | tests only (checks the OpenAPI file) |
 
 Regenerate the list with `go run github.com/google/go-licenses@latest report ./cmd/odraz-gateway`.
