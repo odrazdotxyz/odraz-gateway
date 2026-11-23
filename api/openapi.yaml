@@ -116,6 +116,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [authenticated, demo, backends]
                 properties:
                   authenticated: {type: boolean, description: At least one backend is connected}
                   demo: {type: boolean, description: A demo login is offered}
@@ -123,6 +124,7 @@ paths:
                     type: array
                     items:
                       type: object
+                      required: [id, vendor, connected, oidc, demo]
                       properties:
                         id: {type: string}
                         vendor: {type: string, enum: [opencloud, nextcloud]}
@@ -143,6 +145,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [drives, errors]
                 properties:
                   drives: {type: array, items: {$ref: "#/components/schemas/Drive"}}
                   errors: {type: object, additionalProperties: {type: string}}
@@ -159,6 +162,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [path, entries]
                 properties:
                   path: {type: string}
                   entries: {type: array, items: {$ref: "#/components/schemas/Entry"}}
@@ -287,6 +291,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [items, truncated, errors]
                 properties:
                   items: {type: array, items: {$ref: "#/components/schemas/Photo"}}
                   truncated: {type: boolean}
@@ -303,11 +308,13 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [mappings, problems, errors]
                 properties:
                   mappings:
                     type: array
                     items:
                       type: object
+                      required: [acct, drive, folder, hideInFiles]
                       properties:
                         acct: {type: string}
                         drive: {type: string}
@@ -315,7 +322,7 @@ paths:
                         hideInFiles: {type: boolean}
                   problems:
                     type: array
-                    items: {type: object, properties: {acct: {type: string}, drive: {type: string}, error: {type: string}}}
+                    items: {type: object, required: [acct, drive, error], properties: {acct: {type: string}, drive: {type: string}, error: {type: string}}}
                   errors: {type: object, additionalProperties: {type: string}}
   /api/v1/photos/folder:
     put:
@@ -401,6 +408,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [id, script, mode, config]
                 properties:
                   id: {type: string}
                   script: {type: string, description: URL of the editor's browser script}
@@ -419,6 +427,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [state]
                 properties:
                   state: {type: string, enum: [open, saved, unchanged, conflict, error, gone]}
                   savedTo: {type: string, description: Path of the edited copy after a conflict}
@@ -458,7 +467,7 @@ components:
       description: An error
       content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}
   schemas:
-    Ok: {type: object, properties: {ok: {type: boolean}}}
+    Ok: {type: object, required: [ok], properties: {ok: {type: boolean}}}
     Error:
       type: object
       required: [error]
@@ -467,6 +476,7 @@ components:
         code: {type: string}
     Drive:
       type: object
+      required: [acct, vendor, id, name, kind, readOnly]
       properties:
         acct: {type: string}
         vendor: {type: string}
@@ -478,6 +488,7 @@ components:
         total: {type: integer, format: int64, description: Absent when unlimited or unknown}
     Entry:
       type: object
+      required: [name, path, isDir, size]
       properties:
         name: {type: string}
         path: {type: string}
@@ -487,6 +498,7 @@ components:
         mime: {type: string}
     Photo:
       type: object
+      required: [acct, drive, vendor, name, path, size, kind]
       properties:
         acct: {type: string}
         drive: {type: string}
@@ -499,6 +511,7 @@ components:
         kind: {type: string, enum: [image, video]}
     EditorStatus:
       type: object
+      required: [configured, locked, secretSet, provider, persistent]
       properties:
         configured: {type: boolean}
         locked: {type: boolean, description: Set by the operator; users cannot change it}
