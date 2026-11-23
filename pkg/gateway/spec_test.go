@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/odrazdotxyz/demo/api"
+	"github.com/odrazdotxyz/odraz-gateway/api"
 )
 
 // The OpenAPI contract and the routes must agree: every route has an operation and every operation has a route.

@@ -20,7 +20,7 @@ import (
 	odraz "github.com/odrazdotxyz/odraz-go-sdk"
 	"github.com/odrazdotxyz/odraz-go-sdk/files"
 
-	"github.com/odrazdotxyz/demo/internal/editor"
+	"github.com/odrazdotxyz/odraz-gateway/internal/editor"
 )
 
 // The document editor. The gateway is the editor's "host": the editor server (ONLYOFFICE Document Server, run

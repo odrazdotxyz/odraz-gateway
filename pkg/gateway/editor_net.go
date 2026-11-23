@@ -5,7 +5,7 @@ import (
 	"net"
 	"net/netip"
 
-	"github.com/odrazdotxyz/demo/internal/editor"
+	"github.com/odrazdotxyz/odraz-gateway/internal/editor"
 )
 
 // checkHostPublic resolves host and refuses private and internal addresses, for a clear message when a user saves

@@ -14,7 +14,7 @@ import (
 
 	odraz "github.com/odrazdotxyz/odraz-go-sdk"
 
-	"github.com/odrazdotxyz/demo/examples/vanilla"
+	"github.com/odrazdotxyz/odraz-gateway/examples/vanilla"
 )
 
 func TestParseRange(t *testing.T) {

@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/odrazdotxyz/demo/examples/vanilla"
-	"github.com/odrazdotxyz/demo/pkg/gateway"
+	"github.com/odrazdotxyz/odraz-gateway/examples/vanilla"
+	"github.com/odrazdotxyz/odraz-gateway/pkg/gateway"
 )
 
 // backends collects repeated -backend flags.

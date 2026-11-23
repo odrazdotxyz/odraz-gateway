@@ -1,4 +1,4 @@
-module github.com/odrazdotxyz/demo
+module github.com/odrazdotxyz/odraz-gateway
 
 go 1.23
 

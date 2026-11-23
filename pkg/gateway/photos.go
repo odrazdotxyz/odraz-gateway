@@ -14,7 +14,7 @@ import (
 	odraz "github.com/odrazdotxyz/odraz-go-sdk"
 	"github.com/odrazdotxyz/odraz-go-sdk/files"
 
-	"github.com/odrazdotxyz/demo/pkg/manifest"
+	"github.com/odrazdotxyz/odraz-gateway/pkg/manifest"
 )
 
 // The Photos section is built from folders the user chose. Which folder it is lives in each drive's own

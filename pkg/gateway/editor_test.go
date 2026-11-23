@@ -17,7 +17,7 @@ import (
 	odraz "github.com/odrazdotxyz/odraz-go-sdk"
 	"github.com/odrazdotxyz/odraz-go-sdk/files"
 
-	"github.com/odrazdotxyz/demo/internal/editor"
+	"github.com/odrazdotxyz/odraz-gateway/internal/editor"
 )
 
 // memFS is a tiny in-memory files.FS: just enough for the editor flow. Every write bumps the ETag.
