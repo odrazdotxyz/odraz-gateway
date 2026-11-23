@@ -11,6 +11,7 @@ import (
 	"embed"
 	"encoding/base64"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"sync"
@@ -30,23 +31,34 @@ var webFS embed.FS
 // Backend is one storage server the gateway can connect to. Several can be configured; a session
 // can connect to any of them and the page shows their files together.
 type Backend struct {
-	ID        string // unique, e.g. "opencloud"; also the account ID
-	Vendor    string // SDK adapter: "opencloud" or "nextcloud"
-	URL       string // e.g. https://localhost:9200
-	DemoUser  string // with DemoToken: lets the demo button connect without typing anything (demo only)
-	DemoToken string
+	ID     string // unique, e.g. "opencloud"; also the account ID
+	Vendor string // SDK adapter: "opencloud" or "nextcloud"
+	URL    string // e.g. https://localhost:9200
+	// Insecure accepts this backend's self-signed certificate. Per backend and explicit: never a global switch.
+	Insecure bool
 }
+
+// DemoLogin is a hook that signs a visitor in without a credential of their own, by returning the user name and
+// secret (app token or app password) to use for a backend, or ok=false for none. The product binary does not set
+// it, and then the route POST /auth/demo does not exist at all. The demo program sets it. Anyone who can reach
+// the gateway gets in with it: demo only.
+type DemoLogin func(b Backend) (username, secret string, ok bool)
 
 // Config configures the gateway.
 type Config struct {
 	PublicURL string    // where browsers reach the gateway, e.g. http://localhost:8080 (OIDC redirect base)
 	ClientID  string    // OIDC client registered in the identity provider for this gateway
-	Insecure  bool      // accept self-signed certificates (OpenCloud's demo certificate)
 	Backends  []Backend // at least one
 	// WebDir, if set, serves the page (index.html, app.js, app.css, assets) from this folder on disk instead of the
 	// copy compiled into the binary, so edits to the page show up on a browser refresh without restarting the
 	// gateway. For development; leave it empty for the self-contained binary.
 	WebDir string
+	// DemoLogin, if set, enables "Try the demo" (POST /auth/demo). See DemoLogin.
+	DemoLogin  DemoLogin
+	Listen     string // address to listen on for Run, default 127.0.0.1:8080
+	TrustProxy bool   // behind a reverse proxy: take the client address from the last X-Forwarded-For entry
+	Limits     Limits
+	Logger     *slog.Logger // default: JSON lines to stderr
 	// Office configures the document editor (see OfficeConfig). Leave it empty and users may set their own.
 	Office OfficeConfig
 }
@@ -59,12 +71,19 @@ type Server struct {
 	mu       sync.Mutex
 	sessions map[string]*session
 
+	log       *slog.Logger
+	limits    Limits
+	authLimit rateLimiter
+	apiLimit  rateLimiter
+
+	routes []string // every API route pattern ("GET /api/v1/me"), for the test that keeps api/openapi.yaml in step
+
 	editMu sync.Mutex
 	edits  map[string]*editSession // open documents, by their unguessable id
 }
 
 const (
-	cookieName = "odraz_demo"
+	cookieName = "odraz_session"
 	sessionTTL = 12 * time.Hour
 )
 
@@ -92,48 +111,66 @@ type session struct {
 
 // New builds the gateway.
 func New(cfg Config) *Server {
-	s := &Server{cfg: cfg, mux: http.NewServeMux(), sessions: map[string]*session{}, edits: map[string]*editSession{}}
+	if cfg.Listen == "" {
+		cfg.Listen = "127.0.0.1:8080"
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	}
+	s := &Server{cfg: cfg, log: cfg.Logger, limits: cfg.Limits.withDefaults(), mux: http.NewServeMux(), sessions: map[string]*session{}, edits: map[string]*editSession{}}
 	web, _ := fs.Sub(webFS, "web")
 	if cfg.WebDir != "" {
 		web = os.DirFS(cfg.WebDir)
 	}
-	s.mux.Handle("GET /", noStore(http.FileServerFS(web)))
+	s.mux.Handle("GET /", noStore(http.FileServerFS(web))) // the web UI: not part of the API
+	s.handle("GET /healthz", s.handleHealth)
 
-	s.mux.HandleFunc("GET /auth/login", s.handleLogin)
-	s.mux.HandleFunc("GET /auth/callback", s.handleCallback)
-	s.mux.HandleFunc("POST /auth/apptoken", s.csrf(s.handleAppToken))
-	s.mux.HandleFunc("POST /auth/demo", s.csrf(s.handleDemo))
-	s.mux.HandleFunc("POST /auth/disconnect", s.csrf(s.handleDisconnect))
-	s.mux.HandleFunc("POST /auth/logout", s.csrf(s.handleLogout))
+	s.handle("GET /auth/login", s.handleLogin)
+	s.handle("GET /auth/callback", s.handleCallback)
+	s.handle("POST /auth/apptoken", s.csrf(s.handleAppToken))
+	if cfg.DemoLogin != nil {
+		s.handle("POST /auth/demo", s.csrf(s.handleDemo))
+	}
+	s.handle("POST /auth/disconnect", s.csrf(s.handleDisconnect))
+	s.handle("POST /auth/logout", s.csrf(s.handleLogout))
 
-	s.mux.HandleFunc("GET /api/me", s.handleMe)
-	s.mux.HandleFunc("GET /api/drives", s.authed(s.handleDrives))
-	s.mux.HandleFunc("GET /api/list", s.authed(s.handleList))
-	s.mux.HandleFunc("GET /api/file", s.authed(s.handleDownload))
-	s.mux.HandleFunc("GET /api/thumb", s.authed(s.handleThumb))
-	s.mux.HandleFunc("GET /api/zip", s.authed(s.handleZip))
-	s.mux.HandleFunc("GET /api/avatar", s.authed(s.handleAvatar))
-	s.mux.HandleFunc("GET /api/photos", s.authed(s.handlePhotos))
-	s.mux.HandleFunc("GET /api/photos/config", s.authed(s.handlePhotosConfig))
-	s.mux.HandleFunc("PUT /api/photos/folder", s.csrf(s.authed(s.handlePhotosSet)))
-	s.mux.HandleFunc("DELETE /api/photos/folder", s.csrf(s.authed(s.handlePhotosUnset)))
-	s.mux.HandleFunc("PUT /api/file", s.csrf(s.authed(s.handleUpload)))
-	s.mux.HandleFunc("POST /api/mkdir", s.csrf(s.authed(s.handleMkdir)))
-	s.mux.HandleFunc("POST /api/move", s.csrf(s.authed(s.handleMove)))
-	s.mux.HandleFunc("POST /api/copy", s.csrf(s.authed(s.handleCopy)))
-	s.mux.HandleFunc("DELETE /api/entry", s.csrf(s.authed(s.handleDelete)))
+	s.handle("GET /api/v1/me", s.handleMe)
+	s.handle("GET /api/v1/drives", s.authed(s.handleDrives))
+	s.handle("GET /api/v1/list", s.authed(s.handleList))
+	s.handle("GET /api/v1/file", s.authed(s.handleDownload))
+	s.handle("GET /api/v1/thumb", s.authed(s.handleThumb))
+	s.handle("GET /api/v1/zip", s.authed(s.handleZip))
+	s.handle("GET /api/v1/avatar", s.authed(s.handleAvatar))
+	s.handle("GET /api/v1/photos", s.authed(s.handlePhotos))
+	s.handle("GET /api/v1/photos/config", s.authed(s.handlePhotosConfig))
+	s.handle("PUT /api/v1/photos/folder", s.csrf(s.authed(s.handlePhotosSet)))
+	s.handle("DELETE /api/v1/photos/folder", s.csrf(s.authed(s.handlePhotosUnset)))
+	s.handle("PUT /api/v1/file", s.csrf(s.authed(s.handleUpload)))
+	s.handle("POST /api/v1/mkdir", s.csrf(s.authed(s.handleMkdir)))
+	s.handle("POST /api/v1/move", s.csrf(s.authed(s.handleMove)))
+	s.handle("POST /api/v1/copy", s.csrf(s.authed(s.handleCopy)))
+	s.handle("DELETE /api/v1/entry", s.csrf(s.authed(s.handleDelete)))
 
-	s.mux.HandleFunc("GET /api/editor", s.authed(s.handleEditorGet))
-	s.mux.HandleFunc("PUT /api/editor", s.csrf(s.authed(s.handleEditorPut)))
-	s.mux.HandleFunc("DELETE /api/editor", s.csrf(s.authed(s.handleEditorDelete)))
-	s.mux.HandleFunc("POST /api/editor/check", s.csrf(s.authed(s.handleEditorCheck)))
-	s.mux.HandleFunc("POST /api/editor/session", s.csrf(s.authed(s.handleEditorSession)))
-	s.mux.HandleFunc("GET /api/editor/session", s.authed(s.handleEditorState))
+	s.handle("GET /api/v1/editor", s.authed(s.handleEditorGet))
+	s.handle("PUT /api/v1/editor", s.csrf(s.authed(s.handleEditorPut)))
+	s.handle("DELETE /api/v1/editor", s.csrf(s.authed(s.handleEditorDelete)))
+	s.handle("POST /api/v1/editor/check", s.csrf(s.authed(s.handleEditorCheck)))
+	s.handle("POST /api/v1/editor/session", s.csrf(s.authed(s.handleEditorSession)))
+	s.handle("GET /api/v1/editor/session", s.authed(s.handleEditorState))
 	if cfg.Office.Listen == "" { // the editor reaches us on the main address
 		s.officeRoutes(s.mux)
 	}
 	return s
 }
+
+// handle registers a route and remembers its pattern.
+func (s *Server) handle(pattern string, h http.HandlerFunc) {
+	s.routes = append(s.routes, pattern)
+	s.mux.HandleFunc(pattern, h)
+}
+
+// Routes lists the route patterns the gateway serves (method and path, not the web UI's file server).
+func (s *Server) Routes() []string { return append([]string(nil), s.routes...) }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
@@ -161,7 +198,7 @@ func noStore(next http.Handler) http.Handler {
 // cannot add a custom header to a cross-site form post.
 func (s *Server) csrf(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Requested-With") != "odraz-demo" {
+		if r.Header.Get("X-Requested-With") != "odraz" {
 			writeErr(w, http.StatusForbidden, "missing X-Requested-With header")
 			return
 		}

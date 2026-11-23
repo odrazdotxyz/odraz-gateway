@@ -1,0 +1,508 @@
+openapi: 3.0.3
+info:
+  title: Odraz gateway API
+  version: "1.0"
+  description: |
+    The JSON API a web UI uses to reach storage servers (OpenCloud, Nextcloud, ...) through the gateway.
+    Everything about files is the same whichever server it lives on: every file call names the connected server
+    (`acct`) and the drive on it (`drive`).
+
+    **Session.** Sign in with `/auth/*` (browser redirects and one form post). The gateway then sets the cookie
+    `odraz_session` (HttpOnly, SameSite=Lax, Secure on https). Send it with every call (`credentials: same-origin`).
+
+    **CSRF.** Every call that changes something (anything but GET) must carry the header `X-Requested-With: odraz`.
+    A browser cannot add it to a cross-site form post.
+
+    **Errors.** Every error is JSON `{"error": "message", "code": "..."}` with a fitting HTTP status. `code` is one of
+    `auth` 401, `permission` 403, `not_found` 404, `exists` 409, `not_empty` 409, `invalid_path` 400,
+    `unsupported` 501, `blocked_by_proxy` 502, `too_large` 413, `rate_limited` 429, or `error`.
+
+    **Versioning.** `/api/v1` changes only in compatible ways (new fields, new routes). `/auth/*` and `/editor/*`
+    are not part of the versioned API: the first is browser redirects, the second is called by the editor server.
+servers:
+  - url: /
+tags:
+  - {name: auth, description: Signing in and out}
+  - {name: files, description: Drives and files}
+  - {name: photos, description: The Photos section}
+  - {name: editor, description: The document editor}
+  - {name: ops, description: Operations}
+security:
+  - session: []
+paths:
+  /healthz:
+    get:
+      tags: [ops]
+      summary: Liveness check
+      security: []
+      responses:
+        "200": {description: Alive, content: {application/json: {schema: {type: object, properties: {ok: {type: boolean}}}}}}
+  /auth/login:
+    get:
+      tags: [auth]
+      summary: Start a browser (OIDC) sign-in
+      description: Redirects the browser to the identity provider the backend trusts (PKCE). Optional `backend`.
+      security: []
+      parameters: [{name: backend, in: query, schema: {type: string}}]
+      responses:
+        "302": {description: Redirect to the identity provider}
+        "502": {description: Sign-in could not start (HTML page)}
+  /auth/callback:
+    get:
+      tags: [auth]
+      summary: OIDC redirect target
+      description: The identity provider sends the browser back here with a code; the gateway completes the login and redirects to `/`.
+      security: []
+      responses:
+        "302": {description: Signed in, redirect to /}
+        "502": {description: Sign-in failed (HTML page)}
+  /auth/apptoken:
+    post:
+      tags: [auth]
+      summary: Sign in to one backend with a user name and an app token or app password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, token]
+              properties:
+                backend: {type: string, description: Backend id; default the first}
+                username: {type: string}
+                token: {type: string}
+      responses:
+        "200": {description: Signed in, content: {application/json: {schema: {$ref: "#/components/schemas/Ok"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "429": {$ref: "#/components/responses/Error"}
+  /auth/demo:
+    post:
+      tags: [auth]
+      summary: One-click demo sign-in
+      description: |
+        Exists ONLY when the program embedding the gateway installed a demo-login hook. The product binary
+        (`odraz-gateway`) does not, and then this route is absent. Lets anyone who can reach the gateway in.
+      security: []
+      parameters: [{name: backend, in: query, schema: {type: string}}]
+      responses:
+        "200": {description: Signed in, content: {application/json: {schema: {$ref: "#/components/schemas/Ok"}}}}
+        "404": {$ref: "#/components/responses/Error"}
+  /auth/disconnect:
+    post:
+      tags: [auth]
+      summary: Forget one backend (the others stay connected)
+      description: Disconnecting the last backend ends the session.
+      parameters: [{name: backend, in: query, required: true, schema: {type: string}}]
+      responses:
+        "200": {description: Done, content: {application/json: {schema: {$ref: "#/components/schemas/Ok"}}}}
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: End the session
+      responses:
+        "200": {description: Done, content: {application/json: {schema: {$ref: "#/components/schemas/Ok"}}}}
+  /api/v1/me:
+    get:
+      tags: [auth]
+      summary: Which backends exist and which are connected
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authenticated: {type: boolean, description: At least one backend is connected}
+                  demo: {type: boolean, description: A demo login is offered}
+                  backends:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: string}
+                        vendor: {type: string, enum: [opencloud, nextcloud]}
+                        connected: {type: boolean}
+                        user: {type: string}
+                        method: {type: string, description: "oidc, app-token or app-password"}
+                        oidc: {type: boolean, description: Browser sign-in is available}
+                        demo: {type: boolean}
+  /api/v1/drives:
+    get:
+      tags: [files]
+      summary: Drives of every connected backend, merged
+      description: A backend that fails is reported in `errors` and does not hide the others.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  drives: {type: array, items: {$ref: "#/components/schemas/Drive"}}
+                  errors: {type: object, additionalProperties: {type: string}}
+        "401": {$ref: "#/components/responses/Error"}
+  /api/v1/list:
+    get:
+      tags: [files]
+      summary: List a folder (direct children)
+      parameters: [{$ref: "#/components/parameters/acct"}, {$ref: "#/components/parameters/drive"}, {$ref: "#/components/parameters/path"}]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path: {type: string}
+                  entries: {type: array, items: {$ref: "#/components/schemas/Entry"}}
+        "404": {$ref: "#/components/responses/Error"}
+  /api/v1/file:
+    get:
+      tags: [files]
+      summary: Download a file
+      description: Streams the bytes. Supports a single `Range` (206) and HEAD-style probing. `inline=1` serves images, text, audio, video and PDF inline; anything else is a download. Active content (HTML, SVG) is sandboxed.
+      parameters:
+        - {$ref: "#/components/parameters/acct"}
+        - {$ref: "#/components/parameters/drive"}
+        - {$ref: "#/components/parameters/path"}
+        - {name: inline, in: query, schema: {type: string, enum: ["1"]}}
+        - {name: Range, in: header, schema: {type: string, example: "bytes=0-1023"}}
+      responses:
+        "200": {description: The file, content: {"*/*": {schema: {type: string, format: binary}}}}
+        "206": {description: Part of the file}
+        "416": {description: Range not satisfiable}
+        "404": {$ref: "#/components/responses/Error"}
+    put:
+      tags: [files]
+      summary: Upload a file (the raw bytes are the body)
+      description: Creates missing parent folders. Without `overwrite=1` an existing file gives 409 `exists`. Refused with 413 above the gateway's upload limit.
+      parameters:
+        - {$ref: "#/components/parameters/acct"}
+        - {$ref: "#/components/parameters/drive"}
+        - {$ref: "#/components/parameters/path"}
+        - {name: overwrite, in: query, schema: {type: string, enum: ["0", "1"]}}
+      requestBody: {required: true, content: {"application/octet-stream": {schema: {type: string, format: binary}}}}
+      responses:
+        "201": {description: Stored, content: {application/json: {schema: {$ref: "#/components/schemas/Ok"}}}}
+        "409": {$ref: "#/components/responses/Error"}
+        "413": {$ref: "#/components/responses/Error"}
+  /api/v1/thumb:
+    get:
+      tags: [files]
+      summary: A thumbnail rendered by the server
+      description: 501 `unsupported` when the server has none for this file (for example video on OpenCloud).
+      parameters:
+        - {$ref: "#/components/parameters/acct"}
+        - {$ref: "#/components/parameters/drive"}
+        - {$ref: "#/components/parameters/path"}
+        - {name: size, in: query, schema: {type: integer, minimum: 16, maximum: 1024, default: 256}}
+      responses:
+        "200": {description: An image, content: {"image/*": {schema: {type: string, format: binary}}}}
+        "501": {$ref: "#/components/responses/Error"}
+  /api/v1/zip:
+    get:
+      tags: [files]
+      summary: Selected files and folders as one zip, streamed
+      description: Items may come from different servers. At most 500 items. Everything is checked before the first byte.
+      parameters:
+        - name: item
+          in: query
+          required: true
+          description: "`acct|drive|path`, repeated"
+          schema: {type: array, items: {type: string}}
+          style: form
+          explode: true
+      responses:
+        "200": {description: A zip archive, content: {application/zip: {schema: {type: string, format: binary}}}}
+        "400": {$ref: "#/components/responses/Error"}
+  /api/v1/avatar:
+    get:
+      tags: [files]
+      summary: The user's own avatar on one server
+      parameters:
+        - {name: acct, in: query, required: true, schema: {type: string}}
+        - {name: size, in: query, schema: {type: integer, minimum: 16, maximum: 256}}
+      responses:
+        "200": {description: An image, content: {"image/*": {schema: {type: string, format: binary}}}}
+        "404": {$ref: "#/components/responses/Error"}
+  /api/v1/mkdir:
+    post:
+      tags: [files]
+      summary: Create a folder (and missing parents)
+      parameters: [{$ref: "#/components/parameters/acct"}, {$ref: "#/components/parameters/drive"}, {$ref: "#/components/parameters/path"}]
+      responses:
+        "200": {description: Done, content: {application/json: {schema: {$ref: "#/components/schemas/Ok"}}}}
+        "409": {$ref: "#/components/responses/Error"}
+  /api/v1/move:
+    post:
+      tags: [files]
+      summary: Move or rename
+      description: Inside one drive it is one server operation. With `toAcct`/`toDrive` the bytes stream through the gateway (slower, not atomic).
+      parameters: &moveparams
+        - {$ref: "#/components/parameters/acct"}
+        - {$ref: "#/components/parameters/drive"}
+        - {name: from, in: query, required: true, schema: {type: string}}
+        - {name: to, in: query, required: true, schema: {type: string}}
+        - {name: toAcct, in: query, schema: {type: string}}
+        - {name: toDrive, in: query, schema: {type: string}}
+        - {name: overwrite, in: query, schema: {type: string, enum: ["0", "1"]}}
+      responses:
+        "200": {description: Done, content: {application/json: {schema: {$ref: "#/components/schemas/Ok"}}}}
+        "409": {$ref: "#/components/responses/Error"}
+  /api/v1/copy:
+    post:
+      tags: [files]
+      summary: Copy a file or folder
+      parameters: *moveparams
+      responses:
+        "200": {description: Done, content: {application/json: {schema: {$ref: "#/components/schemas/Ok"}}}}
+        "409": {$ref: "#/components/responses/Error"}
+  /api/v1/entry:
+    delete:
+      tags: [files]
+      summary: Delete a file or folder
+      parameters:
+        - {$ref: "#/components/parameters/acct"}
+        - {$ref: "#/components/parameters/drive"}
+        - {$ref: "#/components/parameters/path"}
+        - {name: recursive, in: query, schema: {type: string, enum: ["0", "1"]}}
+      responses:
+        "200": {description: Done, content: {application/json: {schema: {$ref: "#/components/schemas/Ok"}}}}
+        "409": {$ref: "#/components/responses/Error"}
+  /api/v1/photos:
+    get:
+      tags: [photos]
+      summary: Pictures and videos from every chosen Photos folder, newest first
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: "#/components/schemas/Photo"}}
+                  truncated: {type: boolean}
+                  errors: {type: object, additionalProperties: {type: string}}
+  /api/v1/photos/config:
+    get:
+      tags: [photos]
+      summary: Which folder is the Photos folder on each drive
+      description: Stored in each drive's `/.odraz/manifest.json` (see docs/manifest.md). An unreadable manifest is reported in `problems` and never overwritten.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mappings:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        acct: {type: string}
+                        drive: {type: string}
+                        folder: {type: string}
+                        hideInFiles: {type: boolean}
+                  problems:
+                    type: array
+                    items: {type: object, properties: {acct: {type: string}, drive: {type: string}, error: {type: string}}}
+                  errors: {type: object, additionalProperties: {type: string}}
+  /api/v1/photos/folder:
+    put:
+      tags: [photos]
+      summary: Make a folder this drive's Photos folder
+      parameters:
+        - {$ref: "#/components/parameters/acct"}
+        - {$ref: "#/components/parameters/drive"}
+        - {name: folder, in: query, required: true, schema: {type: string}}
+        - {name: hide, in: query, schema: {type: string, enum: ["0", "1"]}}
+      responses:
+        "200": {description: Done, content: {application/json: {schema: {$ref: "#/components/schemas/Ok"}}}}
+    delete:
+      tags: [photos]
+      summary: Forget this drive's Photos folder
+      parameters: [{$ref: "#/components/parameters/acct"}, {$ref: "#/components/parameters/drive"}]
+      responses:
+        "200": {description: Done, content: {application/json: {schema: {$ref: "#/components/schemas/Ok"}}}}
+  /api/v1/editor:
+    get:
+      tags: [editor]
+      summary: The document editor setting that applies to this session
+      description: Never contains the secret, only whether one is saved.
+      responses:
+        "200": {description: OK, content: {application/json: {schema: {$ref: "#/components/schemas/EditorStatus"}}}}
+    put:
+      tags: [editor]
+      summary: Save the user's own editor server
+      description: 403 when the operator set one in the environment. Private and loopback addresses are refused (400, code `blocked`) unless the operator allows them. An empty `secret` keeps the saved one. Kept in the session's memory.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: {type: string, example: "https://office.example.com"}
+                secret: {type: string, writeOnly: true}
+      responses:
+        "200": {description: Saved, content: {application/json: {schema: {$ref: "#/components/schemas/EditorStatus"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+    delete:
+      tags: [editor]
+      summary: Forget the user's own editor server
+      responses:
+        "200": {description: Done, content: {application/json: {schema: {$ref: "#/components/schemas/EditorStatus"}}}}
+        "403": {$ref: "#/components/responses/Error"}
+  /api/v1/editor/check:
+    post:
+      tags: [editor]
+      summary: Is the editor reachable and does it accept our secret?
+      responses:
+        "200":
+          description: Result (always 200; see `ok`)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  error: {type: string}
+  /api/v1/editor/session:
+    post:
+      tags: [editor]
+      summary: Open a document in the editor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [acct, drive, path]
+              properties:
+                acct: {type: string}
+                drive: {type: string}
+                path: {type: string}
+      responses:
+        "200":
+          description: The editor configuration, signed, without the secret
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: {type: string}
+                  script: {type: string, description: URL of the editor's browser script}
+                  mode: {type: string, enum: [edit, view]}
+                  config: {type: object, description: Passed to `new DocsAPI.DocEditor(id, config)`}
+        "409": {$ref: "#/components/responses/Error"}
+        "415": {$ref: "#/components/responses/Error"}
+    get:
+      tags: [editor]
+      summary: How saving an open document is going
+      parameters: [{name: id, in: query, required: true, schema: {type: string}}]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state: {type: string, enum: [open, saved, unchanged, conflict, error, gone]}
+                  savedTo: {type: string, description: Path of the edited copy after a conflict}
+                  message: {type: string}
+                  saves: {type: integer}
+  /editor/file/{id}:
+    get:
+      tags: [editor]
+      summary: The editor server downloads the document (not for browsers)
+      description: "Needs the editor's signed token in `Authorization: Bearer`. No cookie."
+      security: []
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      responses:
+        "200": {description: The file, content: {application/octet-stream: {schema: {type: string, format: binary}}}}
+        "403": {description: Bad token}
+        "404": {description: Unknown or expired}
+  /editor/callback/{id}:
+    post:
+      tags: [editor]
+      summary: The editor server reports a save (not for browsers)
+      security: []
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
+      responses:
+        "200": {description: "`{\"error\": 0}` on success", content: {application/json: {schema: {type: object, properties: {error: {type: integer}}}}}}
+        "403": {description: Bad token}
+        "404": {description: Unknown or expired}
+components:
+  securitySchemes:
+    session: {type: apiKey, in: cookie, name: odraz_session}
+  parameters:
+    acct: {name: acct, in: query, required: true, description: The connected backend's id (from /api/v1/me), schema: {type: string}}
+    drive: {name: drive, in: query, required: true, description: Drive id on that backend (from /api/v1/drives), schema: {type: string}}
+    path: {name: path, in: query, required: true, description: Absolute path inside the drive, schema: {type: string, example: /Documents/a.txt}}
+  responses:
+    Error:
+      description: An error
+      content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}
+  schemas:
+    Ok: {type: object, properties: {ok: {type: boolean}}}
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: {type: string}
+        code: {type: string}
+    Drive:
+      type: object
+      properties:
+        acct: {type: string}
+        vendor: {type: string}
+        id: {type: string}
+        name: {type: string}
+        kind: {type: string, enum: [personal, project, shared, other]}
+        readOnly: {type: boolean}
+        used: {type: integer, format: int64}
+        total: {type: integer, format: int64, description: Absent when unlimited or unknown}
+    Entry:
+      type: object
+      properties:
+        name: {type: string}
+        path: {type: string}
+        isDir: {type: boolean}
+        size: {type: integer, format: int64}
+        modTime: {type: string, format: date-time}
+        mime: {type: string}
+    Photo:
+      type: object
+      properties:
+        acct: {type: string}
+        drive: {type: string}
+        vendor: {type: string}
+        name: {type: string}
+        path: {type: string}
+        size: {type: integer, format: int64}
+        modTime: {type: string, format: date-time}
+        mime: {type: string}
+        kind: {type: string, enum: [image, video]}
+    EditorStatus:
+      type: object
+      properties:
+        configured: {type: boolean}
+        locked: {type: boolean, description: Set by the operator; users cannot change it}
+        url: {type: string}
+        secretSet: {type: boolean}
+        provider: {type: string, example: onlyoffice}
+        persistent: {type: boolean, description: False while settings live in memory only}

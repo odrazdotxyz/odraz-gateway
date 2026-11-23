@@ -14,7 +14,7 @@ import (
 	odraz "github.com/odrazdotxyz/odraz-go-sdk"
 	"github.com/odrazdotxyz/odraz-go-sdk/files"
 
-	"github.com/odrazdotxyz/demo/internal/manifest"
+	"github.com/odrazdotxyz/demo/pkg/manifest"
 )
 
 // The Photos section is built from folders the user chose. Which folder it is lives in each drive's own
@@ -58,7 +58,7 @@ type problemJSON struct {
 	Error string `json:"error"`
 }
 
-// GET /api/photos/config: where Photos is mapped, per personal drive. A drive whose manifest cannot be read
+// GET /api/v1/photos/config: where Photos is mapped, per personal drive. A drive whose manifest cannot be read
 // (invalid, or from a newer client) is listed under "problems": it is browsed as if unmapped and never
 // overwritten.
 func (s *Server) handlePhotosConfig(w http.ResponseWriter, r *http.Request, sess *session) {
@@ -107,7 +107,7 @@ func cleanFolder(p string) (string, error) {
 	return c, nil
 }
 
-// PUT /api/photos/folder?acct=&drive=&folder=/X&hide=1: make /X this drive's Photos folder.
+// PUT /api/v1/photos/folder?acct=&drive=&folder=/X&hide=1: make /X this drive's Photos folder.
 func (s *Server) handlePhotosSet(w http.ResponseWriter, r *http.Request, sess *session) {
 	q := r.URL.Query()
 	fs, err := s.fsFor(r, sess)
@@ -133,7 +133,7 @@ func (s *Server) handlePhotosSet(w http.ResponseWriter, r *http.Request, sess *s
 	reply(w, manifestErr(err))
 }
 
-// DELETE /api/photos/folder?acct=&drive=: unmap Photos for this drive.
+// DELETE /api/v1/photos/folder?acct=&drive=: unmap Photos for this drive.
 func (s *Server) handlePhotosUnset(w http.ResponseWriter, r *http.Request, sess *session) {
 	fs, err := s.fsFor(r, sess)
 	if err == nil {
@@ -185,7 +185,7 @@ func mediaKind(e files.Entry) string {
 	return ""
 }
 
-// GET /api/photos: the pictures and videos under the folders chosen for Photos, from every mapped drive,
+// GET /api/v1/photos: the pictures and videos under the folders chosen for Photos, from every mapped drive,
 // newest first. Only pictures and videos: the other files of those folders are not part of Photos (they stay
 // reachable in the file views, with "Show hidden").
 func (s *Server) handlePhotos(w http.ResponseWriter, r *http.Request, sess *session) {

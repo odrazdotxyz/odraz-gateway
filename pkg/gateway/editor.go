@@ -116,7 +116,7 @@ func (s *Server) officeOrigin(r *http.Request) string {
 	return u.Scheme + "://" + u.Host
 }
 
-// ---- settings: GET/PUT/DELETE /api/editor, POST /api/editor/check ----
+// ---- settings: GET/PUT/DELETE /api/v1/editor, POST /api/v1/editor/check ----
 
 func (s *Server) editorStatus(sess *session) map[string]any {
 	st, locked, ok := s.officeFor(sess)
@@ -132,7 +132,7 @@ func (s *Server) handleEditorGet(w http.ResponseWriter, r *http.Request, sess *s
 	writeJSON(w, http.StatusOK, s.editorStatus(sess))
 }
 
-// PUT /api/editor {url, secret}: the user's own editor server. An empty secret keeps the saved one.
+// PUT /api/v1/editor {url, secret}: the user's own editor server. An empty secret keeps the saved one.
 func (s *Server) handleEditorPut(w http.ResponseWriter, r *http.Request, sess *session) {
 	if s.cfg.Office.URL != "" {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": "the editor is managed by your administrator", "code": "permission"})
@@ -181,7 +181,7 @@ func (s *Server) handleEditorDelete(w http.ResponseWriter, r *http.Request, sess
 	writeJSON(w, http.StatusOK, s.editorStatus(sess))
 }
 
-// POST /api/editor/check: is the saved editor reachable and does it accept our secret?
+// POST /api/v1/editor/check: is the saved editor reachable and does it accept our secret?
 func (s *Server) handleEditorCheck(w http.ResponseWriter, r *http.Request, sess *session) {
 	st, locked, ok := s.officeFor(sess)
 	if !ok {
@@ -205,7 +205,7 @@ func (s *Server) handleEditorCheck(w http.ResponseWriter, r *http.Request, sess 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// ---- opening a document: POST /api/editor/session ----
+// ---- opening a document: POST /api/v1/editor/session ----
 
 func randomID() string {
 	b := make([]byte, 32)
@@ -335,7 +335,7 @@ func (s *Server) live(sess *session) bool {
 	return false
 }
 
-// GET /api/editor/session?id=: how the save of an open document is going (the page polls it after closing).
+// GET /api/v1/editor/session?id=: how the save of an open document is going (the page polls it after closing).
 func (s *Server) handleEditorState(w http.ResponseWriter, r *http.Request, sess *session) {
 	es := s.edit(r.URL.Query().Get("id"))
 	if es == nil || es.sess != sess {
@@ -357,8 +357,14 @@ func (s *Server) OfficeHandler() http.Handler {
 }
 
 func (s *Server) officeRoutes(m *http.ServeMux) {
-	m.HandleFunc("GET /editor/file/{id}", s.handleEditorFile)
-	m.HandleFunc("POST /editor/callback/{id}", s.handleEditorCallback)
+	reg := func(pattern string, h http.HandlerFunc) {
+		if m == s.mux {
+			s.routes = append(s.routes, pattern)
+		}
+		m.HandleFunc(pattern, h)
+	}
+	reg("GET /editor/file/{id}", s.handleEditorFile)
+	reg("POST /editor/callback/{id}", s.handleEditorCallback)
 }
 
 func (s *Server) editorOf(w http.ResponseWriter, r *http.Request) (*editSession, *editor.ONLYOFFICE) {

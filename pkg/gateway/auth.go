@@ -21,7 +21,13 @@ import (
 // that, so Nextcloud signs in with a user name and an app password.
 func hasOIDC(b Backend) bool { return b.Vendor == "opencloud" }
 
-func hasDemo(b Backend) bool { return b.DemoUser != "" && b.DemoToken != "" }
+func (s *Server) hasDemo(b Backend) bool {
+	if s.cfg.DemoLogin == nil {
+		return false
+	}
+	_, _, ok := s.cfg.DemoLogin(b)
+	return ok
+}
 
 // authMethod is the SDK login method for username + app token / app password.
 func authMethod(b Backend) string {
@@ -33,7 +39,7 @@ func authMethod(b Backend) string {
 
 func (s *Server) baseAccount(b Backend) accounts.Account {
 	cfg := map[string]string{"url": b.URL}
-	if s.cfg.Insecure {
+	if b.Insecure {
 		cfg[accounts.ConfigInsecure] = "true"
 	}
 	label := map[string]string{"opencloud": "OpenCloud", "nextcloud": "Nextcloud"}[b.Vendor]
@@ -138,7 +144,7 @@ func (s *Server) handleAppToken(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDemo(w http.ResponseWriter, r *http.Request) {
 	var targets []Backend
 	for _, b := range s.cfg.Backends {
-		if hasDemo(b) && (r.URL.Query().Get("backend") == "" || r.URL.Query().Get("backend") == b.ID) {
+		if s.hasDemo(b) && (r.URL.Query().Get("backend") == "" || r.URL.Query().Get("backend") == b.ID) {
 			targets = append(targets, b)
 		}
 	}
@@ -150,7 +156,8 @@ func (s *Server) handleDemo(w http.ResponseWriter, r *http.Request) {
 	errs := map[string]string{}
 	connected := 0
 	for _, b := range targets {
-		if err := s.signInPassword(r.Context(), sess, b, b.DemoUser, b.DemoToken); err != nil {
+		user, secret, _ := s.cfg.DemoLogin(b)
+		if err := s.signInPassword(r.Context(), sess, b, user, secret); err != nil {
 			errs[b.ID] = err.Error()
 			continue
 		}
@@ -175,7 +182,7 @@ func (s *Server) signInPassword(ctx context.Context, sess *session, be Backend, 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	values := map[string]string{"url": be.URL, "username": username, "password": token}
-	if s.cfg.Insecure {
+	if be.Insecure {
 		values[accounts.ConfigInsecure] = "true"
 	}
 	acc, err := accounts.Configure(ctx, sess.store, s.baseAccount(be), authMethod(be), values)
@@ -245,7 +252,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	out := make([]backendJSON, 0, len(s.cfg.Backends))
 	signedIn, demo := false, false
 	for _, b := range s.cfg.Backends {
-		j := backendJSON{ID: b.ID, Vendor: b.Vendor, OIDC: hasOIDC(b), Demo: hasDemo(b)}
+		j := backendJSON{ID: b.ID, Vendor: b.Vendor, OIDC: hasOIDC(b), Demo: s.hasDemo(b)}
 		demo = demo || j.Demo
 		if sess != nil {
 			sess.mu.Lock()

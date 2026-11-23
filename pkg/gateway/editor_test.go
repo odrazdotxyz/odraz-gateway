@@ -140,7 +140,7 @@ func (r *rig) do(method, path string, body any, withCookie bool, hdr map[string]
 		rd = bytes.NewReader(b)
 	}
 	req, _ := http.NewRequest(method, r.gw.URL+path, rd)
-	req.Header.Set("X-Requested-With", "odraz-demo")
+	req.Header.Set("X-Requested-With", "odraz")
 	if withCookie {
 		req.AddCookie(r.cook)
 	}
@@ -165,7 +165,7 @@ type opened struct {
 
 func (r *rig) open(path string) opened {
 	r.t.Helper()
-	code, b := r.do("POST", "/api/editor/session", map[string]string{"acct": "mem", "drive": "d1", "path": path}, true, nil)
+	code, b := r.do("POST", "/api/v1/editor/session", map[string]string{"acct": "mem", "drive": "d1", "path": path}, true, nil)
 	if code != 200 {
 		r.t.Fatalf("open %s: %d %s", path, code, b)
 	}
@@ -226,7 +226,7 @@ func TestEditorSaveBackToTheSameFile(t *testing.T) {
 	if n := r.mem.names(); len(n) != 1 {
 		t.Errorf("a plain save must not create other files: %v", n)
 	}
-	_, st := r.do("GET", "/api/editor/session?id="+o.ID, nil, true, nil)
+	_, st := r.do("GET", "/api/v1/editor/session?id="+o.ID, nil, true, nil)
 	if !strings.Contains(string(st), `"state":"saved"`) {
 		t.Errorf("state: %s", st)
 	}
@@ -255,7 +255,7 @@ func TestEditorDoesNotClobberANewerFile(t *testing.T) {
 			t.Errorf("copy holds %q", r.mem.get(p))
 		}
 	}
-	_, st := r.do("GET", "/api/editor/session?id="+o.ID, nil, true, nil)
+	_, st := r.do("GET", "/api/v1/editor/session?id="+o.ID, nil, true, nil)
 	if !strings.Contains(string(st), `"state":"conflict"`) {
 		t.Errorf("state: %s", st)
 	}
@@ -299,19 +299,19 @@ func TestEditorCallbackGuards(t *testing.T) {
 func TestEditorNotConfiguredOrUnsupported(t *testing.T) {
 	r := newRig(t, nil)
 	r.mem.put("/a.docx", "x")
-	if code, _ := r.do("POST", "/api/editor/session", map[string]string{"acct": "mem", "drive": "d1", "path": "/a.docx"}, true, nil); code != 409 {
+	if code, _ := r.do("POST", "/api/v1/editor/session", map[string]string{"acct": "mem", "drive": "d1", "path": "/a.docx"}, true, nil); code != 409 {
 		t.Errorf("no editor: %d, want 409", code)
 	}
-	_, b := r.do("GET", "/api/editor", nil, true, nil)
+	_, b := r.do("GET", "/api/v1/editor", nil, true, nil)
 	if !strings.Contains(string(b), `"configured":false`) {
 		t.Errorf("status: %s", b)
 	}
 	r2 := newRig(t, locked)
 	r2.mem.put("/pic.png", "x")
-	if code, _ := r2.do("POST", "/api/editor/session", map[string]string{"acct": "mem", "drive": "d1", "path": "/pic.png"}, true, nil); code != 415 {
+	if code, _ := r2.do("POST", "/api/v1/editor/session", map[string]string{"acct": "mem", "drive": "d1", "path": "/pic.png"}, true, nil); code != 415 {
 		t.Errorf("unsupported type: %d, want 415", code)
 	}
-	if code, _ := r2.do("POST", "/api/editor/session", map[string]string{"acct": "mem", "drive": "d1", "path": "/a.docx"}, false, nil); code != 401 {
+	if code, _ := r2.do("POST", "/api/v1/editor/session", map[string]string{"acct": "mem", "drive": "d1", "path": "/a.docx"}, false, nil); code != 401 {
 		t.Errorf("no session: %d, want 401", code)
 	}
 }
@@ -320,8 +320,8 @@ func TestEditorSecretNeverLeaves(t *testing.T) {
 	r := newRig(t, locked)
 	r.mem.put("/a.docx", "x")
 	o := r.open("/a.docx")
-	_, st := r.do("GET", "/api/editor", nil, true, nil)
-	code, put := r.do("PUT", "/api/editor", map[string]string{"url": "https://o.example.com", "secret": "zzz"}, true, nil)
+	_, st := r.do("GET", "/api/v1/editor", nil, true, nil)
+	code, put := r.do("PUT", "/api/v1/editor", map[string]string{"url": "https://o.example.com", "secret": "zzz"}, true, nil)
 	b, _ := json.Marshal(o)
 	for name, body := range map[string]string{"session": string(b), "status": string(st), "put": string(put)} {
 		if strings.Contains(body, secret) || strings.Contains(body, "zzz") {
@@ -340,41 +340,41 @@ func TestEditorPersonalSettings(t *testing.T) {
 	r := newRig(t, nil)
 	// private and loopback addresses are refused by default
 	for _, u := range []string{r.ds.URL, "http://localhost:8083", "http://10.0.0.5", "http://169.254.169.254", "http://[::1]"} {
-		if code, _ := r.do("PUT", "/api/editor", map[string]string{"url": u, "secret": "s"}, true, nil); code != 400 {
+		if code, _ := r.do("PUT", "/api/v1/editor", map[string]string{"url": u, "secret": "s"}, true, nil); code != 400 {
 			t.Errorf("%s accepted: %d", u, code)
 		}
 	}
-	if code, _ := r.do("PUT", "/api/editor", map[string]string{"url": "ftp://x", "secret": "s"}, true, nil); code != 400 {
+	if code, _ := r.do("PUT", "/api/v1/editor", map[string]string{"url": "ftp://x", "secret": "s"}, true, nil); code != 400 {
 		t.Error("ftp accepted")
 	}
-	if code, _ := r.do("PUT", "/api/editor", map[string]string{"url": "https://office.example.org"}, true, nil); code != 400 {
+	if code, _ := r.do("PUT", "/api/v1/editor", map[string]string{"url": "https://office.example.org"}, true, nil); code != 400 {
 		t.Error("saved without any secret")
 	}
-	if code, b := r.do("PUT", "/api/editor", map[string]string{"url": "https://office.example.org/", "secret": "s"}, true, nil); code != 200 || !strings.Contains(string(b), `"configured":true`) || strings.Contains(string(b), `"s"`) {
+	if code, b := r.do("PUT", "/api/v1/editor", map[string]string{"url": "https://office.example.org/", "secret": "s"}, true, nil); code != 200 || !strings.Contains(string(b), `"configured":true`) || strings.Contains(string(b), `"s"`) {
 		t.Errorf("save: %d %s", code, b)
 	}
 	// keeping the secret when only the URL changes
-	if code, _ := r.do("PUT", "/api/editor", map[string]string{"url": "https://other.example.org"}, true, nil); code != 200 {
+	if code, _ := r.do("PUT", "/api/v1/editor", map[string]string{"url": "https://other.example.org"}, true, nil); code != 200 {
 		t.Error("changing only the URL must keep the secret")
 	}
 	// it is per user: another session sees nothing
 	r.srv.sessions["other"] = &session{accts: map[string]*account{"mem": {}}, created: time.Now()}
-	req, _ := http.NewRequest("GET", r.gw.URL+"/api/editor", nil)
+	req, _ := http.NewRequest("GET", r.gw.URL+"/api/v1/editor", nil)
 	req.AddCookie(&http.Cookie{Name: cookieName, Value: "other"})
 	resp, _ := http.DefaultClient.Do(req)
 	b, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(b), `"configured":false`) {
 		t.Errorf("settings leaked to another user: %s", b)
 	}
-	if code, _ := r.do("DELETE", "/api/editor", nil, true, nil); code != 200 {
+	if code, _ := r.do("DELETE", "/api/v1/editor", nil, true, nil); code != 200 {
 		t.Error("delete")
 	}
-	if _, b := r.do("GET", "/api/editor", nil, true, nil); !strings.Contains(string(b), `"configured":false`) {
+	if _, b := r.do("GET", "/api/v1/editor", nil, true, nil); !strings.Contains(string(b), `"configured":false`) {
 		t.Errorf("after delete: %s", b)
 	}
 	// the operator may allow private addresses (Docker)
 	r2 := newRig(t, func(string) OfficeConfig { return OfficeConfig{AllowPrivate: true} })
-	if code, _ := r2.do("PUT", "/api/editor", map[string]string{"url": "http://localhost:8083", "secret": "s"}, true, nil); code != 200 {
+	if code, _ := r2.do("PUT", "/api/v1/editor", map[string]string{"url": "http://localhost:8083", "secret": "s"}, true, nil); code != 200 {
 		t.Errorf("AllowPrivate: %d", code)
 	}
 }
@@ -395,8 +395,8 @@ func TestEditorCheckEndpoint(t *testing.T) {
 	defer ds.Close()
 	r.srv.cfg.Office.AllowPrivate = true // the fake editor listens on loopback
 	for secretTry, want := range map[string]bool{"good": true, "bad": false} {
-		r.do("PUT", "/api/editor", map[string]string{"url": ds.URL, "secret": secretTry}, true, nil)
-		_, b := r.do("POST", "/api/editor/check", nil, true, nil)
+		r.do("PUT", "/api/v1/editor", map[string]string{"url": ds.URL, "secret": secretTry}, true, nil)
+		_, b := r.do("POST", "/api/v1/editor/check", nil, true, nil)
 		if got := strings.Contains(string(b), `"ok":true`); got != want {
 			t.Errorf("secret %q: %s", secretTry, b)
 		}
@@ -424,7 +424,7 @@ func TestOfficeListenerServesOnlyTheEditorRoutes(t *testing.T) {
 	r := newRig(t, func(ds string) OfficeConfig { return OfficeConfig{URL: ds, Secret: secret, Listen: "127.0.0.1:0"} })
 	h := httptest.NewServer(r.srv.OfficeHandler())
 	defer h.Close()
-	if resp, _ := http.Get(h.URL + "/api/drives"); resp.StatusCode != 404 {
+	if resp, _ := http.Get(h.URL + "/api/v1/drives"); resp.StatusCode != 404 {
 		t.Errorf("the editor listener must not serve the API: %d", resp.StatusCode)
 	}
 	if resp, _ := http.Get(h.URL + "/"); resp.StatusCode != 404 {

@@ -22,7 +22,7 @@ type zipItem struct {
 	name string // unique top-level name inside the archive
 }
 
-// GET /api/zip?item=acct|drive|path&item=...: the selected files and folders as one zip, streamed (nothing is
+// GET /api/v1/zip?item=acct|drive|path&item=...: the selected files and folders as one zip, streamed (nothing is
 // buffered, so a big selection does not fill the gateway's memory). Items may come from different servers.
 // Everything is checked before the first byte is sent, so a bad selection gets a normal error; a failure in
 // the middle of the stream can only end the download early.

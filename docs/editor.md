@@ -8,7 +8,7 @@ knows storage) so another provider (WOPI, for Collabora) can be added.
 ## How it works
 
 ```
- browser ──(1) POST /api/editor/session──▶ gateway ──SDK──▶ OpenCloud / Nextcloud / ...
+ browser ──(1) POST /api/v1/editor/session──▶ gateway ──SDK──▶ OpenCloud / Nextcloud / ...
     │                                         ▲  │
     │◀── config (signed, no secret) ──────────┘  │ (3) GET /editor/file/<id>   file bytes via the SDK
     │                                            │ (4) POST /editor/callback/<id>   save: gateway fetches the result
@@ -26,7 +26,7 @@ knows storage) so another provider (WOPI, for Collabora) can be added.
    gateway verifies the token, requires the result URL to be on the editor server's own origin, downloads it and writes it
    with `files.Upload(..., Overwrite: true)`. It answers `{"error":0}`. Status 4 (closed, no changes) writes nothing;
    3 and 7 (editor errors) are recorded; 1 (people connecting) is ignored; 6 (force-save) writes like 2 and keeps the
-   session. The page polls `GET /api/editor/session?id=` after you close the editor and says "Saved", "No changes", or
+   session. The page polls `GET /api/v1/editor/session?id=` after you close the editor and says "Saved", "No changes", or
    what went wrong.
 
 `document.key` is a hash of backend, drive, path and the file's version (ETag), so a changed file gets a new key and the
@@ -114,21 +114,21 @@ over HTTP; we neither bundle nor modify it. Have a licence review confirm that r
 
 ## API
 
-Routes are unversioned like the rest of the current API; they move under `/api/v1` with the others (see the handoff).
+All routes are under `/api/v1`; `/auth/*` (browser redirects) and `/editor/*` (called by the editor server) are not versioned.
 
 | Route | |
 |---|---|
-| `GET /api/editor` | `{configured, locked, url, secretSet, provider, persistent}` |
-| `PUT /api/editor` `{url, secret}` | save the user's own editor (403 when the operator set one); empty secret keeps the saved one |
-| `DELETE /api/editor` | forget it |
-| `POST /api/editor/check` | `{ok}` or `{ok:false, error}`: reachable, and does it accept our secret |
-| `POST /api/editor/session` `{acct, drive, path}` | `{id, script, mode, config}`; 409 no editor, 415 unsupported type |
-| `GET /api/editor/session?id=` | `{state: open\|saved\|unchanged\|conflict\|error\|gone, savedTo, message}` |
+| `GET /api/v1/editor` | `{configured, locked, url, secretSet, provider, persistent}` |
+| `PUT /api/v1/editor` `{url, secret}` | save the user's own editor (403 when the operator set one); empty secret keeps the saved one |
+| `DELETE /api/v1/editor` | forget it |
+| `POST /api/v1/editor/check` | `{ok}` or `{ok:false, error}`: reachable, and does it accept our secret |
+| `POST /api/v1/editor/session` `{acct, drive, path}` | `{id, script, mode, config}`; 409 no editor, 415 unsupported type |
+| `GET /api/v1/editor/session?id=` | `{state: open\|saved\|unchanged\|conflict\|error\|gone, savedTo, message}` |
 | `GET /editor/file/{id}`, `POST /editor/callback/{id}` | called by the editor only |
 
 ## Tests
 
-`internal/editor` (JWT, keys, formats, SSRF rules, callback forms, check) and `internal/gateway/editor_test.go` run
+`internal/editor` (JWT, keys, formats, SSRF rules, callback forms, check) and `pkg/gateway/editor_test.go` run
 against a **fake Document Server** and an in-memory backend, so CI never needs the container: save, the
 conflict copy, forged and unsigned calls, a foreign download URL, sign-out, the secret never appearing in a response,
 per-user settings, private addresses refused, the CSP, and the editor-only listener. The browser walkthrough uses the real

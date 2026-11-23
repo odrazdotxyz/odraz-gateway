@@ -98,13 +98,13 @@ func TestGuards(t *testing.T) {
 		resp.Body.Close()
 		return resp.StatusCode
 	}
-	if c := do("GET", "/api/drives", nil); c != 401 {
+	if c := do("GET", "/api/v1/drives", nil); c != 401 {
 		t.Errorf("unauthenticated API call: %d, want 401", c)
 	}
-	if c := do("DELETE", "/api/entry?drive=x&path=/a", nil); c != 403 {
+	if c := do("DELETE", "/api/v1/entry?drive=x&path=/a", nil); c != 403 {
 		t.Errorf("state change without the CSRF header: %d, want 403", c)
 	}
-	if c := do("PUT", "/api/file?drive=x&path=/a", map[string]string{"X-Requested-With": "odraz-demo"}); c != 401 {
+	if c := do("PUT", "/api/v1/file?drive=x&path=/a", map[string]string{"X-Requested-With": "odraz"}); c != 401 {
 		t.Errorf("state change without a session: %d, want 401", c)
 	}
 	if c := do("GET", "/", nil); c != 200 {
@@ -121,22 +121,26 @@ func TestGuards(t *testing.T) {
 func TestDemoLoginDisabledByDefault(t *testing.T) {
 	srv := New(Config{})
 	req := httptest.NewRequest("POST", "/auth/demo", nil)
-	req.Header.Set("X-Requested-With", "odraz-demo")
+	req.Header.Set("X-Requested-With", "odraz")
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
-	if rec.Code != 404 {
-		t.Fatalf("status = %d, want 404 when no demo token is configured", rec.Code)
+	if rec.Code != 404 && rec.Code != 405 { // no such route: the page handler answers
+		t.Fatalf("status = %d, want 404/405 when no demo login hook is set", rec.Code)
+	}
+	// Without the hook the route is not registered at all, whatever the backends hold.
+	if New(Config{Backends: []Backend{{ID: "nextcloud", Vendor: "nextcloud", URL: "http://x"}}}).hasDemo(Backend{ID: "nextcloud"}) {
+		t.Error("a gateway without the hook must not offer a demo login")
 	}
 }
 
-// Nextcloud has no browser (OIDC) sign-in: /api/me must say so per backend, and say which have demo credentials.
+// Nextcloud has no browser (OIDC) sign-in: /api/v1/me must say so per backend, and say which have demo credentials.
 func TestMeListsBackends(t *testing.T) {
 	s := New(Config{PublicURL: "http://localhost:8080", Backends: []Backend{
 		{ID: "opencloud", Vendor: "opencloud", URL: "https://localhost:9200"},
-		{ID: "nextcloud", Vendor: "nextcloud", URL: "http://localhost:8082", DemoUser: "alice", DemoToken: "x"},
-	}})
+		{ID: "nextcloud", Vendor: "nextcloud", URL: "http://localhost:8082"},
+	}, DemoLogin: func(b Backend) (string, string, bool) { return "alice", "x", b.ID == "nextcloud" }})
 	rec := httptest.NewRecorder()
-	s.ServeHTTP(rec, httptest.NewRequest("GET", "/api/me", nil))
+	s.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v1/me", nil))
 	var me struct {
 		Authenticated, Demo bool
 		Backends            []struct {

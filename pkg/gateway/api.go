@@ -347,7 +347,7 @@ func parseRange(h string, size int64) (start, length int64, partial, ok bool) {
 // misbehaving server cannot make us serve active content from our origin.
 var thumbTypes = map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true}
 
-// GET /api/thumb?acct=&drive=&path=&size=N: a thumbnail rendered by the file's own server (OpenCloud,
+// GET /api/v1/thumb?acct=&drive=&path=&size=N: a thumbnail rendered by the file's own server (OpenCloud,
 // Nextcloud), at most size x size pixels. Where the server has none (the file type, or a backend without
 // thumbnails) the answer is 501 and the page falls back to the original.
 func (s *Server) handleThumb(w http.ResponseWriter, r *http.Request, sess *session) {
@@ -377,7 +377,7 @@ func (s *Server) handleThumb(w http.ResponseWriter, r *http.Request, sess *sessi
 	_, _ = io.Copy(w, rc)
 }
 
-// PUT /api/file?drive=&path=&overwrite=1 with the raw file as the body. files.Upload creates
+// PUT /api/v1/file?drive=&path=&overwrite=1 with the raw file as the body. files.Upload creates
 // missing parent folders and refuses to replace an existing file unless overwrite is set.
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request, sess *session) {
 	fs, err := s.fsFor(r, sess)
@@ -387,6 +387,12 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request, sess *sess
 	}
 	q := r.URL.Query()
 	size := r.ContentLength // -1 when unknown (chunked)
+	if max := s.limits.MaxUploadBytes; size > max {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "the file is larger than this gateway accepts", "code": "too_large"})
+		return
+	} else if max > 0 {
+		r.Body = http.MaxBytesReader(w, r.Body, max) // also covers uploads with no declared length
+	}
 	err = files.Upload(r.Context(), fs, q.Get("path"), r.Body, files.WriteOptions{Size: size, Overwrite: q.Get("overwrite") == "1"})
 	if err != nil {
 		writeError(w, err)

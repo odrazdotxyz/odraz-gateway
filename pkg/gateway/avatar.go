@@ -10,7 +10,7 @@ import (
 	odraz "github.com/odrazdotxyz/odraz-go-sdk"
 )
 
-// GET /api/avatar?acct=&size=N: the profile picture of the user signed in to that server, from the server
+// GET /api/v1/avatar?acct=&size=N: the profile picture of the user signed in to that server, from the server
 // itself (Nextcloud always has one; OpenCloud only when the user uploaded a photo, else 404). The page shows
 // the vendor's icon when there is none.
 func (s *Server) handleAvatar(w http.ResponseWriter, r *http.Request, sess *session) {

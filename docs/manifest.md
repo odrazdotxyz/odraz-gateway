@@ -47,5 +47,5 @@ Thumbnails come from the server where it has them (`files.Preview` in the SDK).
 
 ## Reference implementation
 
-`internal/manifest` in the demo (about 100 lines, depends only on the SDK's `files.FS`). It is meant to move
+`pkg/manifest` in the demo (about 100 lines, depends only on the SDK's `files.FS`). It is meant to move
 to an optional package once a second client needs it; the SDK core stays storage-only.

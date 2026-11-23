@@ -103,7 +103,7 @@
     acctMenu: null, // id of the server whose top-bar menu is open
     avatars: {}, // per server: 'ok' | 'none' (so a missing avatar is asked for once, not on every redraw)
     settings: false, // the Settings page is showing
-    editor: { configured: false }, // the document editor (from /api/editor): never holds the secret
+    editor: { configured: false }, // the document editor (from /api/v1/editor): never holds the secret
     sel: new Map(), anchor: null, // the selected files and folders, by key; the last one clicked (for shift-click ranges)
     photoView: localStorage.getItem('photoView') === 'folders' ? 'folders' : 'gallery' };
   const catById = (id) => CATS.find((c) => c.id === id) || CATS[0];
@@ -140,7 +140,7 @@
 
   // ---------- api ----------
   async function api(path, { method = 'GET', body, headers = {}, raw = false } = {}) {
-    const res = await fetch(path, { method, body, credentials: 'same-origin', headers: { 'X-Requested-With': 'odraz-demo', ...headers } });
+    const res = await fetch(path, { method, body, credentials: 'same-origin', headers: { 'X-Requested-With': 'odraz', ...headers } });
     if (res.status === 401 && state.me) { state.me = null; render(); }
     if (!res.ok) {
       let j = {};
@@ -151,7 +151,7 @@
   }
   // An entry knows its backend: e.acct / e.drive. Everything the page sends back names them.
   const at = (e, extra = {}) => ({ acct: e.acct, drive: e.drive, ...extra });
-  const fileUrl = (e, extra = {}) => '/api/file?' + qs({ ...at(e), path: e.path, ...extra });
+  const fileUrl = (e, extra = {}) => '/api/v1/file?' + qs({ ...at(e), path: e.path, ...extra });
 
   // ---------- feedback ----------
   function toast(msg, isErr) {
@@ -353,7 +353,7 @@
     const corner = () => h('span', { class: 'vb-corner' }, vbadge(b.vendor, 12));
     const letter = () => h('span', { class: 'letter', style: 'background:' + hueOf(who) }, (who[0] || '?').toUpperCase());
     if (state.avatars[b.id] === 'none') return h('span', { class: 'face' }, letter(), corner());
-    const img = h('img', { class: 'avatar', alt: '', src: '/api/avatar?' + qs({ acct: b.id, size: 64 }) });
+    const img = h('img', { class: 'avatar', alt: '', src: '/api/v1/avatar?' + qs({ acct: b.id, size: 64 }) });
     img.onload = () => { state.avatars[b.id] = 'ok'; };
     img.onerror = () => { state.avatars[b.id] = 'none'; const f = img.closest('.face'); if (f) f.replaceChildren(letter(), corner()); };
     return h('span', { class: 'face' }, img, corner());
@@ -508,7 +508,7 @@
   async function loadCategory(cat) {
     const ds = drivesOf(cat);
     if (cat === 'teams') return ds.map((d) => ({ name: d.name, path: '/', isDir: true, isSpace: true, acct: d.acct, drive: d.id, vendor: d.vendor, used: d.used })).sort(byName);
-    const res = await Promise.allSettled(ds.map((d) => api('/api/list?' + qs({ acct: d.acct, drive: d.id, path: '/' }))
+    const res = await Promise.allSettled(ds.map((d) => api('/api/v1/list?' + qs({ acct: d.acct, drive: d.id, path: '/' }))
       .then((r) => r.entries.map((e) => ({ ...e, acct: d.acct, drive: d.id, vendor: d.vendor })))));
     res.forEach((r, i) => { if (r.status === 'rejected' && r.reason.status !== 401) fail(new Error(vendorName(ds[i].vendor) + ': ' + r.reason.message)); });
     let all = res.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
@@ -519,18 +519,18 @@
   }
 
   async function loadPhotos() {
-    const res = await api('/api/photos');
+    const res = await api('/api/v1/photos');
     Object.entries(res.errors || {}).forEach(([k, v]) => fail(new Error(k + ': ' + v)));
     return res;
   }
   const sortDrives = (ds) => ds.sort((a, b) => a.name.localeCompare(b.name) || a.vendor.localeCompare(b.vendor));
   // The numbers in the usage bar change when files are added or removed: ask the servers again (quietly).
   async function refreshDrives() {
-    try { const res = await api('/api/drives'); state.drives = sortDrives(res.drives); if (state.me) render(); } catch { /* the bar just keeps its old numbers */ }
+    try { const res = await api('/api/v1/drives'); state.drives = sortDrives(res.drives); if (state.me) render(); } catch { /* the bar just keeps its old numbers */ }
   }
   async function refreshMappings() {
     try {
-      const res = await api('/api/photos/config');
+      const res = await api('/api/v1/photos/config');
       state.mappings = res.mappings || []; state.problems = res.problems || [];
     } catch (e) { state.mappings = []; if (e.status !== 401) fail(e); }
   }
@@ -546,7 +546,7 @@
       let entries;
       if (state.loc) {
         const { acct, drive: dv } = state.loc;
-        const res = await api('/api/list?' + qs({ acct, drive: dv, path: state.loc.path }));
+        const res = await api('/api/v1/list?' + qs({ acct, drive: dv, path: state.loc.path }));
         if (stale()) return;
         const vendor = (driveBy(acct, dv) || {}).vendor;
         state.loc.path = res.path; entries = res.entries.map((e) => ({ ...e, acct, drive: dv, vendor }));
@@ -558,7 +558,7 @@
       } else if (state.cat === 'photos') {
         // Folders view, top level: what is INSIDE the folders you chose (the chosen folders themselves are skipped),
         // merged across drives. A server that fails is reported and does not hide the others.
-        const res = await Promise.allSettled(state.mappings.map((m) => api('/api/list?' + qs({ acct: m.acct, drive: m.drive, path: m.folder }))
+        const res = await Promise.allSettled(state.mappings.map((m) => api('/api/v1/list?' + qs({ acct: m.acct, drive: m.drive, path: m.folder }))
           .then((r) => r.entries.map((e) => ({ ...e, acct: m.acct, drive: m.drive, vendor: (driveBy(m.acct, m.drive) || {}).vendor, kind: kindOf(e) })))));
         res.forEach((r, i) => { if (r.status === 'rejected' && r.reason.status !== 401) fail(new Error(state.mappings[i].folder + ': ' + r.reason.message)); });
         if (stale()) return;
@@ -608,7 +608,7 @@
   function batchDownload() {
     const items = selectedList();
     if (items.length === 1 && !items[0].isDir) { location.href = fileUrl(items[0]); return; }
-    const url = '/api/zip?' + items.map((e) => 'item=' + encodeURIComponent(selKey(e))).join('&');
+    const url = '/api/v1/zip?' + items.map((e) => 'item=' + encodeURIComponent(selKey(e))).join('&');
     if (url.length > 7500) { toast('That is too many items for one download: select fewer.', true); return; }
     location.href = url;
   }
@@ -634,7 +634,7 @@
     if (!(await confirmBox('Delete ' + items.length + (items.length === 1 ? ' item?' : ' items?'),
       items.length === 1 ? '“' + items[0].name + '”' + (dirs ? ' and everything in it' : '') + ' will be deleted.'
         : 'These ' + items.length + ' items' + (dirs ? ' (folders with everything in them)' : '') + ' will be deleted.', 'Delete', true))) return;
-    await runBatch(items, 'Deleted', (e) => api('/api/entry?' + qs(at(e, { path: e.path, recursive: 1 })), { method: 'DELETE' }));
+    await runBatch(items, 'Deleted', (e) => api('/api/v1/entry?' + qs(at(e, { path: e.path, recursive: 1 })), { method: 'DELETE' }));
   }
 
   // Move or copy everything selected into one folder (of any server you can write to).
@@ -654,12 +654,12 @@
     await runBatch(items, kind === 'move' ? 'Moved' : 'Copied', async (e) => {
       const to = join(into, e.name), same = e.acct === dest.drive.acct && e.drive === dest.drive.id;
       if (same && to === e.path) throw Object.assign(new Error('already there'), { code: 'exists' });
-      await api('/api/' + kind + '?' + qs(at(e, { from: e.path, to, ...(same ? {} : { toAcct: dest.drive.acct, toDrive: dest.drive.id }) })), { method: 'POST' });
+      await api('/api/v1/' + kind + '?' + qs(at(e, { from: e.path, to, ...(same ? {} : { toAcct: dest.drive.acct, toDrive: dest.drive.id }) })), { method: 'POST' });
     });
   }
 
   // ---------- Photos ----------
-  const thumbUrl = (it, size = 256) => '/api/thumb?' + qs(at(it, { path: it.path, size }));
+  const thumbUrl = (it, size = 256) => '/api/v1/thumb?' + qs(at(it, { path: it.path, size }));
 
   // Servers rarely make thumbnails for videos (OpenCloud has none; Nextcloud needs ffmpeg). When there is none,
   // the tile shows the video's own first frame, fetched with a Range request only once the tile scrolls into view.
@@ -739,7 +739,7 @@
           i ? h('span', { class: 'sep' }, icon('chevron', 14)) : '', h('button', { type: 'button', onclick: () => { dir = p; show(); } }, label)]));
         useBtn.disabled = dir === '/' && !o.allowRoot; useBtn.textContent = o.confirm(dir, drive);
         try {
-          const res = await api('/api/list?' + qs({ acct: drive.acct, drive: drive.id, path: dir }));
+          const res = await api('/api/v1/list?' + qs({ acct: drive.acct, drive: drive.id, path: dir }));
           const dirs = res.entries.filter((e) => e.isDir && !e.name.startsWith('.'));
           if (!nameIn.value) nameIn.placeholder = o.hideOption && dir === '/' && !dirs.some((e) => e.name === 'Photos') ? 'New folder name, e.g. Photos' : 'New folder name';
           list.replaceChildren(...(dirs.length ? dirs.map((e) => h('button', { type: 'button', class: 'frow', onclick: () => { dir = e.path; show(); } }, icon('folder', 16), e.name, icon('chevron', 14)))
@@ -755,7 +755,7 @@
         if (/[\/\\]/.test(name)) { toast('A folder name cannot contain / or \\', true); return; }
         createBtn.disabled = true;
         try {
-          await api('/api/mkdir?' + qs({ acct: drive.acct, drive: drive.id, path: join(dir, name) }), { method: 'POST' });
+          await api('/api/v1/mkdir?' + qs({ acct: drive.acct, drive: drive.id, path: join(dir, name) }), { method: 'POST' });
           dir = join(dir, name); nameIn.value = '';
           await show();
         } catch (e) { fail(e); } finally { createBtn.disabled = false; }
@@ -780,7 +780,7 @@
     const pick = await pickFolder(startDrive);
     if (!pick) return;
     try {
-      await api('/api/photos/folder?' + qs({ acct: pick.drive.acct, drive: pick.drive.id, folder: pick.folder, hide: pick.hide ? 1 : 0 }), { method: 'PUT' });
+      await api('/api/v1/photos/folder?' + qs({ acct: pick.drive.acct, drive: pick.drive.id, folder: pick.folder, hide: pick.hide ? 1 : 0 }), { method: 'PUT' });
       toast('Photos folder set to ' + pick.folder + ' on ' + driveLabel(pick.drive));
     } catch (e) { fail(e); return; }
     await refreshMappings(); if (state.settings) render(); else load();
@@ -801,7 +801,7 @@
     const result = h('p', { class: 'meta', role: 'status' });
     const check = h('button', { type: 'button', class: 'btn small', onclick: async () => {
       result.textContent = 'Checking…';
-      try { const r = await api('/api/editor/check', { method: 'POST' }); result.textContent = r.ok ? 'Connected: the editor answers and accepts the secret.' : (r.error || 'Not working.'); }
+      try { const r = await api('/api/v1/editor/check', { method: 'POST' }); result.textContent = r.ok ? 'Connected: the editor answers and accepts the secret.' : (r.error || 'Not working.'); }
       catch (x) { result.textContent = x.message; }
     } }, 'Check connection');
     if (ed.locked) {
@@ -814,7 +814,7 @@
     const save = async (ev) => {
       ev.preventDefault();
       try {
-        await api('/api/editor', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: url.value, secret: secret.value }) });
+        await api('/api/v1/editor', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: url.value, secret: secret.value }) });
         location.reload(); // the page's security policy names the editor's address: reload so it takes effect
       } catch (x) { result.textContent = x.message; }
     };
@@ -822,7 +822,7 @@
       h('p', { class: 'meta' }, 'Open and edit Word, Excel, PowerPoint, OpenDocument and text files from any server, and view PDFs. You run the editor (an ONLYOFFICE Document Server) yourself; give its address and the secret it signs with. Documents are saved back to the server they came from. The secret stays on the gateway and is never sent back to this page. It is kept in memory, so it is lost when the gateway restarts.'),
       h('form', { onsubmit: save }, h('label', {}, 'Editor server', url), h('label', {}, 'Secret', secret),
         h('div', { class: 'row left' }, h('button', { class: 'btn primary' }, 'Save'),
-          ed.url ? h('button', { type: 'button', class: 'btn', onclick: async () => { try { await api('/api/editor', { method: 'DELETE' }); location.reload(); } catch (x) { fail(x); } } }, 'Remove') : '',
+          ed.url ? h('button', { type: 'button', class: 'btn', onclick: async () => { try { await api('/api/v1/editor', { method: 'DELETE' }); location.reload(); } catch (x) { fail(x); } } }, 'Remove') : '',
           ed.configured ? check : ''), result));
   }
 
@@ -833,12 +833,12 @@
     const rows = state.mappings.map((m) => {
       const d = driveBy(m.acct, m.drive);
       const hide = h('input', { type: 'checkbox', checked: m.hideInFiles, onchange: async () => {
-        try { await api('/api/photos/folder?' + qs({ acct: m.acct, drive: m.drive, folder: m.folder, hide: hide.checked ? 1 : 0 }), { method: 'PUT' }); await redraw(); } catch (e) { fail(e); } } });
+        try { await api('/api/v1/photos/folder?' + qs({ acct: m.acct, drive: m.drive, folder: m.folder, hide: hide.checked ? 1 : 0 }), { method: 'PUT' }); await redraw(); } catch (e) { fail(e); } } });
       return h('div', { class: 'mrow' }, d ? vbadge(d.vendor, 20) : '', h('div', { class: 'mt' }, h('b', {}, m.folder), h('small', {}, d ? driveLabel(d) : m.acct)),
         h('label', { class: 'check' }, hide, 'Hide from Personal'),
         h('button', { type: 'button', class: 'btn small', onclick: () => chooseFolder(m) }, 'Change'),
         h('button', { type: 'button', class: 'btn small', onclick: async () => {
-          try { await api('/api/photos/folder?' + qs({ acct: m.acct, drive: m.drive }), { method: 'DELETE' }); await redraw(); } catch (e) { fail(e); } } }, 'Remove'));
+          try { await api('/api/v1/photos/folder?' + qs({ acct: m.acct, drive: m.drive }), { method: 'DELETE' }); await redraw(); } catch (e) { fail(e); } } }, 'Remove'));
     });
     return h('div', { class: 'settings' }, h('h1', {}, 'Settings'),
       h('section', { class: 'scard' }, h('h2', {}, 'Photos'),
@@ -914,7 +914,7 @@
     document.head.append(t);
   });
   async function refreshEditor() {
-    try { state.editor = await api('/api/editor'); } catch { state.editor = { configured: false }; }
+    try { state.editor = await api('/api/v1/editor'); } catch { state.editor = { configured: false }; }
   }
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let editorOpen = false;
@@ -923,7 +923,7 @@
     editorOpen = true;
     let session, editor;
     try {
-      session = await api('/api/editor/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acct: e.acct, drive: e.drive, path: e.path }) });
+      session = await api('/api/v1/editor/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acct: e.acct, drive: e.drive, path: e.path }) });
       await loadScript(session.script);
     } catch (x) { editorOpen = false; return fail(x.status === 415 ? new Error('The editor cannot open this kind of file.') : x); }
     const host = h('div', { id: 'oo-host' });
@@ -935,7 +935,7 @@
       toast('Saving ' + e.name + '…');
       for (let i = 0; i < 30; i++) {
         await sleep(2000);
-        let st; try { st = await api('/api/editor/session?' + qs({ id: session.id })); } catch { return; }
+        let st; try { st = await api('/api/v1/editor/session?' + qs({ id: session.id })); } catch { return; }
         if (st.state === 'open') continue;
         if (st.state === 'saved') toast('Saved ' + e.name);
         else if (st.state === 'unchanged') toast('No changes to ' + e.name);
@@ -980,13 +980,13 @@
     if (!t) return;
     const name = await askText('New folder', 'Folder name', '', 'Create');
     if (!name) return;
-    try { await api('/api/mkdir?' + qs({ acct: t.acct, drive: t.drive, path: join(t.dir, name) }), { method: 'POST' }); toast('Created ' + name); load(); } catch (e) { fail(e); }
+    try { await api('/api/v1/mkdir?' + qs({ acct: t.acct, drive: t.drive, path: join(t.dir, name) }), { method: 'POST' }); toast('Created ' + name); load(); } catch (e) { fail(e); }
   }
 
   async function rename(e) {
     const name = await askText('Rename', 'New name', e.name, 'Rename');
     if (!name || name === e.name) return;
-    try { await api('/api/move?' + qs(at(e, { from: e.path, to: join(parentOf(e.path), name) })), { method: 'POST' }); toast('Renamed to ' + name); load(); }
+    try { await api('/api/v1/move?' + qs(at(e, { from: e.path, to: join(parentOf(e.path), name) })), { method: 'POST' }); toast('Renamed to ' + name); load(); }
     catch (x) { fail(x.code === 'exists' ? new Error('“' + name + '” already exists here.') : x); }
   }
 
@@ -997,7 +997,7 @@
     const cross = dest.acct !== e.acct || dest.drive !== e.drive;
     if (cross) toast((kind === 'move' ? 'Moving' : 'Copying') + ' “' + e.name + '”…');
     try {
-      await api('/api/' + kind + '?' + qs(at(e, { from: e.path, to: dest.path, ...(cross ? { toAcct: dest.acct, toDrive: dest.drive } : {}) })), { method: 'POST' });
+      await api('/api/v1/' + kind + '?' + qs(at(e, { from: e.path, to: dest.path, ...(cross ? { toAcct: dest.acct, toDrive: dest.drive } : {}) })), { method: 'POST' });
       const d = driveBy(dest.acct, dest.drive);
       toast((kind === 'move' ? 'Moved' : 'Copied') + ' to ' + (cross && d ? driveLabel(d) + ' ' : '') + dest.path); load(); refreshDrives();
     } catch (x) { fail(x.code === 'exists' ? new Error('Something already exists at ' + dest.path + '.') : x); }
@@ -1005,7 +1005,7 @@
 
   async function remove(e) {
     if (!(await confirmBox('Delete ' + (e.isDir ? 'folder' : 'file') + '?', '“' + e.name + '”' + (e.isDir ? ' and everything in it' : '') + ' will be deleted.', 'Delete', true))) return;
-    try { await api('/api/entry?' + qs(at(e, { path: e.path, recursive: 1 })), { method: 'DELETE' }); toast('Deleted ' + e.name); load(); refreshDrives(); } catch (x) { fail(x); }
+    try { await api('/api/v1/entry?' + qs(at(e, { path: e.path, recursive: 1 })), { method: 'DELETE' }); toast('Deleted ' + e.name); load(); refreshDrives(); } catch (x) { fail(x); }
   }
 
   // ---------- upload ----------
@@ -1013,8 +1013,8 @@
   function putFile(file, t, path, overwrite, onProgress) {
     return new Promise((resolve, reject) => {
       const x = new XMLHttpRequest();
-      x.open('PUT', '/api/file?' + qs({ acct: t.acct, drive: t.drive, path, overwrite: overwrite ? 1 : 0 }));
-      x.setRequestHeader('X-Requested-With', 'odraz-demo');
+      x.open('PUT', '/api/v1/file?' + qs({ acct: t.acct, drive: t.drive, path, overwrite: overwrite ? 1 : 0 }));
+      x.setRequestHeader('X-Requested-With', 'odraz');
       x.upload.onprogress = (ev) => ev.lengthComputable && onProgress(ev.loaded / ev.total);
       x.onload = () => {
         if (x.status < 300) return resolve();
@@ -1066,11 +1066,11 @@
   // ---------- start ----------
   async function boot() {
     try {
-      const me = await api('/api/me');
+      const me = await api('/api/v1/me');
       state.backends = me.backends || []; state.demo = !!me.demo;
       if (!me.authenticated) { state.me = null; return render(); }
       state.me = me;
-      const res = await api('/api/drives');
+      const res = await api('/api/v1/drives');
       state.drives = sortDrives(res.drives);
       Object.entries(res.errors || {}).forEach(([k, v]) => fail(new Error(k + ': ' + v)));
       await Promise.all([refreshMappings(), refreshEditor()]);
