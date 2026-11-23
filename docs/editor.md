@@ -107,9 +107,9 @@ browser walkthrough that edits a `.docx` on OpenCloud and on Nextcloud.
 4 GB swap, about 100 open documents on one 2.8 GHz core and 4 GB): the container used about 340 MiB idle after
 editing four documents, and peaked at about 1.24 GiB (cgroup peak, including start-up). I did **not** measure with memory
 caps of 512 MB, 1 GB and 2 GB, so whether it runs on a small VPS is unverified; the vendor figure says it will not fit
-500 MB. The gateway only needs the editor's address and secret, so the editor can run on another machine. The community
-edition reportedly limits simultaneous editing connections (community sources say 20); the official FAQ does not
-confirm a number, so none is stated here.
+500 MB. The gateway only needs the editor's address and secret, so the editor can run on another machine.
+ONLYOFFICE's licence FAQ says the Community Edition is limited to 20 simultaneous editing connections per
+Document Server (read in November 2026; check the current FAQ). Whether view-only connections count is not verified.
 
 ## Licence note
 
