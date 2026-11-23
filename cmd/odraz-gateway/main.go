@@ -12,11 +12,15 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/odrazdotxyz/demo/examples/vanilla"
 	"github.com/odrazdotxyz/demo/pkg/gateway"
 )
 
@@ -76,7 +80,7 @@ func env(k string) string { return os.Getenv("ODRAZ_" + k) }
 func envBool(k string) bool { b, _ := strconv.ParseBool(env(k)); return b }
 
 func main() {
-	cfg := gateway.Config{}
+	cfg := gateway.Config{WebFS: vanilla.FS()}
 	var bs backends
 	flag.Var(&bs, "backend", "a storage server: id=NAME,vendor=opencloud|nextcloud,url=URL[,insecure=true]; repeat for several (env ODRAZ_BACKENDS, separated by semicolons)")
 	flag.StringVar(&cfg.Listen, "listen", orDefault(env("LISTEN"), "127.0.0.1:8080"), "address to listen on; env ODRAZ_LISTEN")
@@ -93,7 +97,11 @@ func main() {
 	flag.BoolVar(&cfg.Office.AllowPrivate, "office-allow-private", envBool("OFFICE_ALLOW_PRIVATE"), "let users' own editor URLs point at private addresses (Docker); env ODRAZ_OFFICE_ALLOW_PRIVATE")
 	flag.StringVar(&cfg.Office.GatewayURL, "office-gateway-url", env("OFFICE_GATEWAY_URL"), "where the editor reaches this gateway if not the public URL; env ODRAZ_OFFICE_GATEWAY_URL")
 	flag.StringVar(&cfg.Office.Listen, "office-listen", env("OFFICE_LISTEN"), "serve only the editor's callback routes on this extra address; env ODRAZ_OFFICE_LISTEN")
+	healthcheck := flag.Bool("healthcheck", false, "probe a running gateway at -listen (for the container's HEALTHCHECK, which has no curl) and exit 0 if it is healthy")
 	flag.Parse()
+	if *healthcheck {
+		os.Exit(probe(cfg.Listen))
+	}
 
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	cfg.Logger = log
@@ -141,6 +149,27 @@ func main() {
 	if err := gateway.New(cfg).Run(ctx); err != nil {
 		fatal(log, err)
 	}
+}
+
+// probe asks a running gateway on addr whether it is alive: exit code 0 if so.
+func probe(addr string) int {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 1
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	c := http.Client{Timeout: 3 * time.Second}
+	resp, err := c.Get("http://" + net.JoinHostPort(host, port) + "/healthz")
+	if err != nil {
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 1
+	}
+	return 0
 }
 
 func orDefault(v, d string) string {

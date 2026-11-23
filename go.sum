@@ -1,13 +1,6 @@
-github.com/odrazdotxyz/odraz-go-sdk v0.0.0-20261121135154-dd8dc5aa39b3 h1:tIuHzl4GNcND9LXLS01i5NhzC0nxs4FVreK3U4k8gew=
-github.com/odrazdotxyz/odraz-go-sdk v0.0.0-20261121135154-dd8dc5aa39b3/go.mod h1:BQ3HSKSWV1vYdzagojY4sz6mOLp1bbXEhDEclOa7HRs=
-github.com/odrazdotxyz/odraz-go-sdk v0.0.0-20261122152711-7982a9aabf6a h1:IiMI96yR/BWwTno8AMsMsnrab/5rZCFxeLMzE4Pbs4o=
-github.com/odrazdotxyz/odraz-go-sdk v0.0.0-20261122152711-7982a9aabf6a/go.mod h1:BQ3HSKSWV1vYdzagojY4sz6mOLp1bbXEhDEclOa7HRs=
-github.com/odrazdotxyz/odraz-go-sdk v0.0.0-20261122164534-7f4882dabd4b h1:olZhAUqoeJN6XW0oIXzDuc8yYBBxXBHhF40h/v5Qt5I=
-github.com/odrazdotxyz/odraz-go-sdk v0.0.0-20261122164534-7f4882dabd4b/go.mod h1:BQ3HSKSWV1vYdzagojY4sz6mOLp1bbXEhDEclOa7HRs=
-github.com/odrazdotxyz/odraz-go-sdk v0.0.0-20261122164625-eddc819927bb h1:ZTIM1PeHYph/wfw3fdQoa4cRXkNd6spr/EeudUu1aM8=
-github.com/odrazdotxyz/odraz-go-sdk v0.0.0-20261122164625-eddc819927bb/go.mod h1:BQ3HSKSWV1vYdzagojY4sz6mOLp1bbXEhDEclOa7HRs=
 github.com/odrazdotxyz/odraz-go-sdk v0.0.0-20261122182944-cfda29aa0a20 h1:tlM8VpJ1u0RIBtheBvdTOfq1Utb+f7mj441gNfP+p4Q=
 github.com/odrazdotxyz/odraz-go-sdk v0.0.0-20261122182944-cfda29aa0a20/go.mod h1:BQ3HSKSWV1vYdzagojY4sz6mOLp1bbXEhDEclOa7HRs=
+gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 h1:yhCVgyC4o1eVCa2tZl7eS0r+SDo693bJlVdllGtEeKM=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
 gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=

@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	odraz "github.com/odrazdotxyz/odraz-go-sdk"
+
+	"github.com/odrazdotxyz/demo/examples/vanilla"
 )
 
 func TestParseRange(t *testing.T) {
@@ -83,7 +85,7 @@ func TestIDTokenName(t *testing.T) {
 }
 
 func TestGuards(t *testing.T) {
-	s := New(Config{PublicURL: "http://localhost:8080", ClientID: "x", Backends: []Backend{{ID: "opencloud", Vendor: "opencloud", URL: "https://localhost:9200"}}})
+	s := New(Config{WebFS: vanilla.FS(), PublicURL: "http://localhost:8080", ClientID: "x", Backends: []Backend{{ID: "opencloud", Vendor: "opencloud", URL: "https://localhost:9200"}}})
 	srv := httptest.NewServer(s)
 	defer srv.Close()
 	do := func(method, path string, hdr map[string]string) int {
@@ -201,7 +203,7 @@ func TestWebDirServesFromDisk(t *testing.T) {
 	if got := get(live); !strings.Contains(got, "two") {
 		t.Errorf("an edit must show without a restart, got %q", got)
 	}
-	if got := get(New(Config{Backends: []Backend{{ID: "opencloud", Vendor: "opencloud", URL: "https://x"}}})); !strings.Contains(got, "Odraz demo") {
+	if got := get(New(Config{WebFS: vanilla.FS(), Backends: []Backend{{ID: "opencloud", Vendor: "opencloud", URL: "https://x"}}})); !strings.Contains(got, "Odraz demo") {
 		t.Errorf("without WebDir the embedded page is served, got %.80q", got)
 	}
 }

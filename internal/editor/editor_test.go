@@ -89,10 +89,10 @@ func TestClientRefusesPrivate(t *testing.T) {
 }
 
 func TestRedirectsNotFollowed(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "http://169.254.169.254/", 302) }))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "http://169.254.169.254/", http.StatusFound) }))
 	defer srv.Close()
 	resp, err := NewClient(true, time.Second).Get(srv.URL)
-	if err != nil || resp.StatusCode != 302 {
+	if err != nil || resp.StatusCode != http.StatusFound {
 		t.Fatalf("got %v %v", resp, err)
 	}
 	resp.Body.Close()

@@ -1,0 +1,5 @@
+.git
+.demo
+scripts/node_modules
+screenshots
+docs/*.png

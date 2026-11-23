@@ -9,7 +9,6 @@ package gateway
 import (
 	"context"
 	"crypto/rand"
-	"embed"
 	"encoding/base64"
 	"io/fs"
 	"log/slog"
@@ -25,9 +24,6 @@ import (
 	_ "github.com/odrazdotxyz/odraz-go-sdk/vendors/nextcloud" // registers the "nextcloud" adapter
 	_ "github.com/odrazdotxyz/odraz-go-sdk/vendors/opencloud" // registers the "opencloud" adapter
 )
-
-//go:embed web
-var webFS embed.FS
 
 // Backend is one storage server the gateway can connect to. Several can be configured; a session
 // can connect to any of them and the page shows their files together.
@@ -54,6 +50,9 @@ type Config struct {
 	// copy compiled into the binary, so edits to the page show up on a browser refresh without restarting the
 	// gateway. For development; leave it empty for the self-contained binary.
 	WebDir string
+	// WebFS is the web UI to serve when WebDir is empty, for example vanilla.FS() or an embedded build of your own.
+	// With neither, the gateway serves only its API.
+	WebFS fs.FS
 	// DemoLogin, if set, enables "Try the demo" (POST /auth/demo). See DemoLogin.
 	DemoLogin DemoLogin
 	// Store keeps sessions and their tokens. Default: in memory (lost on restart). Use NewFileStore for a
@@ -131,11 +130,13 @@ func New(cfg Config) *Server {
 	if p, ok := cfg.Store.(interface{ Persistent() bool }); ok {
 		s.persistent = p.Persistent()
 	}
-	web, _ := fs.Sub(webFS, "web")
+	web := cfg.WebFS
 	if cfg.WebDir != "" {
 		web = os.DirFS(cfg.WebDir)
 	}
-	s.mux.Handle("GET /", noStore(http.FileServerFS(web))) // the web UI: not part of the API
+	if web != nil {
+		s.mux.Handle("GET /", noStore(http.FileServerFS(web))) // the web UI: not part of the API
+	}
 	s.handle("GET /healthz", s.handleHealth)
 
 	s.handle("GET /auth/login", s.handleLogin)

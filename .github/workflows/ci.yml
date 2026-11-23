@@ -1,0 +1,36 @@
+name: ci
+on:
+  push: {branches: [main]}
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod}
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test -race -count=1 ./...
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build the image
+        run: docker build -t odraz-gateway:ci .
+      - name: it starts, is healthy and runs as non-root
+        run: |
+          docker run -d --name g -e ODRAZ_BACKENDS='vendor=nextcloud,url=http://example.invalid' odraz-gateway:ci
+          for i in $(seq 1 20); do
+            [ "$(docker inspect g --format '{{.State.Health.Status}}')" = healthy ] && break; sleep 2
+          done
+          test "$(docker inspect g --format '{{.State.Health.Status}}')" = healthy
+          test "$(docker inspect g --format '{{.Config.User}}')" = 65532:65532
