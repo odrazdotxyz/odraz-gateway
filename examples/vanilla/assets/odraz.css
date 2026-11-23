@@ -1,3 +1,4 @@
+/* From brand-kit/tokens/odraz.css (MIT, (c) Odraz, https://github.com/odrazdotxyz/brand-kit). Changed: the Google Fonts @import is removed; the page serves Poppins itself. */
 /* Odraz design tokens. Source of truth: tokens.json. Set data-theme="dark" on <html> for dark mode. */
 
 :root, [data-theme="light"] {

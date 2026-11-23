@@ -15,8 +15,8 @@ Regenerate the list with `go run github.com/google/go-licenses@latest report ./c
 | File | Licence |
 |---|---|
 | `Poppins-Regular.ttf`, `Poppins-SemiBold.ttf` | SIL Open Font License 1.1 (`OFL.txt`) |
-| `odraz-*`, `odrive-*`, `ogram-*` logos, `favicon.*` | Odraz brand kit, **CC BY-ND 4.0** (Attribution-NoDerivatives): use them unmodified and credit "Odraz". Do not alter, recolour or crop them. A fork that wants its own look should replace them with its own artwork |
-| `odraz.css` | design tokens for the reference UI |
+| `odraz-*`, `odrive-*`, `ogram-*` logos, `favicon.*` | Odraz brand kit, **CC BY-ND 4.0** (Attribution-NoDerivatives): use them unmodified and credit "Odraz". Do not alter, recolour or crop them. (The tokens and the fonts are licensed separately, below.) A fork that wants its own look should replace them with its own artwork |
+| `odraz.css` | design tokens from the brand kit's `tokens/`, **MIT** (© Odraz). Changed from the original: the Google Fonts `@import` is removed because the page serves Poppins itself. The MIT text is in the brand kit: https://github.com/odrazdotxyz/brand-kit/blob/main/tokens/LICENSE |
 
 ## Software the gateway talks to (not included)
 
