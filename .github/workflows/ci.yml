@@ -28,9 +28,9 @@ jobs:
         run: docker build -t odraz-gateway:ci .
       - name: it starts, is healthy and runs as non-root
         run: |
-          docker run -d --name g -e ODRAZ_BACKENDS='vendor=nextcloud,url=http://example.invalid' odraz-gateway:ci
+          docker run -d --name gw -e ODRAZ_BACKENDS='vendor=nextcloud,url=http://example.invalid' odraz-gateway:ci
           for i in $(seq 1 20); do
-            [ "$(docker inspect g --format '{{.State.Health.Status}}')" = healthy ] && break; sleep 2
+            [ "$(docker inspect gw --format '{{.State.Health.Status}}')" = healthy ] && break; sleep 2
           done
-          test "$(docker inspect g --format '{{.State.Health.Status}}')" = healthy
-          test "$(docker inspect g --format '{{.Config.User}}')" = 65532:65532
+          test "$(docker inspect gw --format '{{.State.Health.Status}}')" = healthy
+          test "$(docker inspect gw --format '{{.Config.User}}')" = 65532:65532
