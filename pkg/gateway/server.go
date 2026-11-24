@@ -66,7 +66,10 @@ type Config struct {
 	// settings are refused with 403, every drive is reported read-only, and the editor never saves. For showcases
 	// and kiosks; it does not change what the backends themselves allow.
 	ReadOnly bool
-	Logger   *slog.Logger // default: JSON lines to stderr
+	// Middleware, if set, wraps the main handler (not the editor-only listener), for a program that embeds the
+	// gateway and needs to add a rule of its own, such as refusing a route.
+	Middleware func(http.Handler) http.Handler
+	Logger     *slog.Logger // default: JSON lines to stderr
 	// Office configures the document editor (see OfficeConfig). Leave it empty and users may set their own.
 	Office OfficeConfig
 }

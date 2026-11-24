@@ -141,7 +141,13 @@ func (s *Server) guard(next http.Handler) http.Handler {
 }
 
 // Handler is the whole gateway as an http.Handler: Server plus request ids, logging, limits and /healthz.
-func (s *Server) Handler() http.Handler { return s.guard(s) }
+func (s *Server) Handler() http.Handler {
+	h := s.guard(s)
+	if s.cfg.Middleware != nil {
+		h = s.cfg.Middleware(h)
+	}
+	return h
+}
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

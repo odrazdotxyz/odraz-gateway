@@ -98,4 +98,4 @@ address. `/healthz` is not logged. Cookies, headers, bodies and credentials are 
 ## As a library
 
 `gateway.Config` mirrors all of this (`Backends`, `PublicURL`, `ClientID`, `Listen`, `TrustProxy`, `Limits`, `Store`,
-`ReadOnly`, `Office`, `WebDir`, `WebFS`, `Logger`) plus `DemoLogin`, which only a program that embeds the gateway can set.
+`ReadOnly`, `Middleware`, `Office`, `WebDir`, `WebFS`, `Logger`) plus `DemoLogin`, which only a program that embeds the gateway can set.
