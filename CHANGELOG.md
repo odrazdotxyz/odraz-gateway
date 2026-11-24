@@ -5,7 +5,9 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
 
 ## [Unreleased]
 
-First public version in preparation (0.1.0).
+## [0.1.0] - 2026-11-24
+
+First public version.
 
 ### Added
 
