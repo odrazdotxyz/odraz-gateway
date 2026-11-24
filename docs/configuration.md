@@ -57,6 +57,14 @@ Register the **redirect URI** `PUBLIC_URL/auth/callback` (for example `https://f
 make it a public client (PKCE, no client secret). Nextcloud signs in with app passwords only (browser sign-in needs its
 `user_oidc` app and is not supported yet).
 
+## Read-only mode
+
+`-read-only` (`ODRAZ_READ_ONLY=1`) turns the gateway into a viewer: browsing, previews, downloads and zips work, the
+editor opens documents in view mode, and everything that changes something is refused with `403 permission`
+(upload, new folder, rename, move, copy, delete, Photos folder choice, a user's own editor settings). Every drive is
+reported `readOnly`, so a UI greys the actions out. It is for showcases and kiosks; it adds to, and never relaxes,
+what the backends themselves allow. Signing in and out still work.
+
 ## Limits
 
 | Flag | Default | |
@@ -90,4 +98,4 @@ address. `/healthz` is not logged. Cookies, headers, bodies and credentials are 
 ## As a library
 
 `gateway.Config` mirrors all of this (`Backends`, `PublicURL`, `ClientID`, `Listen`, `TrustProxy`, `Limits`, `Store`,
-`Office`, `WebDir`, `WebFS`, `Logger`) plus `DemoLogin`, which only a program that embeds the gateway can set.
+`ReadOnly`, `Office`, `WebDir`, `WebFS`, `Logger`) plus `DemoLogin`, which only a program that embeds the gateway can set.

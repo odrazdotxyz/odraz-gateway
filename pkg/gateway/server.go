@@ -61,7 +61,12 @@ type Config struct {
 	Listen     string // address to listen on for Run, default 127.0.0.1:8080
 	TrustProxy bool   // behind a reverse proxy: take the client address from the last X-Forwarded-For entry
 	Limits     Limits
-	Logger     *slog.Logger // default: JSON lines to stderr
+	// ReadOnly makes the whole gateway read-only: browsing, previews, downloads and the editor in view mode still
+	// work, but uploads, folders, rename, move, copy, delete, Photos folder changes and the user's own editor
+	// settings are refused with 403, every drive is reported read-only, and the editor never saves. For showcases
+	// and kiosks; it does not change what the backends themselves allow.
+	ReadOnly bool
+	Logger   *slog.Logger // default: JSON lines to stderr
 	// Office configures the document editor (see OfficeConfig). Leave it empty and users may set their own.
 	Office OfficeConfig
 }
@@ -157,17 +162,17 @@ func New(cfg Config) *Server {
 	s.handle("GET /api/v1/avatar", s.authed(s.handleAvatar))
 	s.handle("GET /api/v1/photos", s.authed(s.handlePhotos))
 	s.handle("GET /api/v1/photos/config", s.authed(s.handlePhotosConfig))
-	s.handle("PUT /api/v1/photos/folder", s.csrf(s.authed(s.handlePhotosSet)))
-	s.handle("DELETE /api/v1/photos/folder", s.csrf(s.authed(s.handlePhotosUnset)))
-	s.handle("PUT /api/v1/file", s.csrf(s.authed(s.handleUpload)))
-	s.handle("POST /api/v1/mkdir", s.csrf(s.authed(s.handleMkdir)))
-	s.handle("POST /api/v1/move", s.csrf(s.authed(s.handleMove)))
-	s.handle("POST /api/v1/copy", s.csrf(s.authed(s.handleCopy)))
-	s.handle("DELETE /api/v1/entry", s.csrf(s.authed(s.handleDelete)))
+	s.handle("PUT /api/v1/photos/folder", s.csrf(s.writes(s.authed(s.handlePhotosSet))))
+	s.handle("DELETE /api/v1/photos/folder", s.csrf(s.writes(s.authed(s.handlePhotosUnset))))
+	s.handle("PUT /api/v1/file", s.csrf(s.writes(s.authed(s.handleUpload))))
+	s.handle("POST /api/v1/mkdir", s.csrf(s.writes(s.authed(s.handleMkdir))))
+	s.handle("POST /api/v1/move", s.csrf(s.writes(s.authed(s.handleMove))))
+	s.handle("POST /api/v1/copy", s.csrf(s.writes(s.authed(s.handleCopy))))
+	s.handle("DELETE /api/v1/entry", s.csrf(s.writes(s.authed(s.handleDelete))))
 
 	s.handle("GET /api/v1/editor", s.authed(s.handleEditorGet))
-	s.handle("PUT /api/v1/editor", s.csrf(s.authed(s.handleEditorPut)))
-	s.handle("DELETE /api/v1/editor", s.csrf(s.authed(s.handleEditorDelete)))
+	s.handle("PUT /api/v1/editor", s.csrf(s.writes(s.authed(s.handleEditorPut))))
+	s.handle("DELETE /api/v1/editor", s.csrf(s.writes(s.authed(s.handleEditorDelete))))
 	s.handle("POST /api/v1/editor/check", s.csrf(s.authed(s.handleEditorCheck)))
 	s.handle("POST /api/v1/editor/session", s.csrf(s.authed(s.handleEditorSession)))
 	s.handle("GET /api/v1/editor/session", s.authed(s.handleEditorState))
@@ -175,6 +180,17 @@ func New(cfg Config) *Server {
 		s.officeRoutes(s.mux)
 	}
 	return s
+}
+
+// writes refuses the request when the gateway is read-only (Config.ReadOnly).
+func (s *Server) writes(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.cfg.ReadOnly {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": "this gateway is read-only", "code": "permission"})
+			return
+		}
+		next(w, r)
+	}
 }
 
 // handle registers a route and remembers its pattern.

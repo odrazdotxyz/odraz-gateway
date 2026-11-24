@@ -8,6 +8,8 @@ All notable changes. The format follows [Keep a Changelog](https://keepachangelo
 First public version in preparation (0.1.0).
 
 ### Added
+
+- Read-only mode (`-read-only`, `Config.ReadOnly`): every change is refused, drives are reported read-only and documents open in view mode.
 - The gateway as a library (`pkg/gateway`) and a binary (`cmd/odraz-gateway`) configured by flags and environment.
 - API under `/api/v1` with an OpenAPI contract (`api/openapi.yaml`) checked against the routes by a test.
 - Several storage servers per session (OpenCloud, Nextcloud), each with its own TLS setting.

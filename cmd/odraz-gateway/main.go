@@ -88,6 +88,7 @@ func main() {
 	flag.StringVar(&cfg.ClientID, "client-id", orDefault(env("CLIENT_ID"), "odraz-gateway"), "OIDC client ID registered for the gateway in the identity provider; env ODRAZ_CLIENT_ID")
 	flag.StringVar(&cfg.WebDir, "web-dir", env("WEB_DIR"), "serve the web UI from this folder (for example the UI's dist/) instead of the one built in; env ODRAZ_WEB_DIR")
 	flag.BoolVar(&cfg.TrustProxy, "trust-proxy", envBool("TRUST_PROXY"), "behind a reverse proxy: use X-Forwarded-For for the client address; env ODRAZ_TRUST_PROXY")
+	flag.BoolVar(&cfg.ReadOnly, "read-only", envBool("READ_ONLY"), "refuse every change (upload, rename, move, copy, delete, settings) and open documents in view mode; env ODRAZ_READ_ONLY")
 	flag.Int64Var(&cfg.Limits.MaxUploadBytes, "max-upload-bytes", 0, "largest upload in bytes (default 5 GiB)")
 	flag.IntVar(&cfg.Limits.AuthPerMinute, "auth-rate", 0, "sign-in attempts per minute per client address (default 20, -1 off)")
 	flag.IntVar(&cfg.Limits.APIPerMinute, "api-rate", 0, "API calls per minute per client address (default 6000, -1 off)")

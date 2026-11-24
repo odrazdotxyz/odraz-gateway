@@ -100,7 +100,7 @@ func (s *Server) handleDrives(w http.ResponseWriter, r *http.Request, sess *sess
 			continue
 		}
 		for _, d := range ds {
-			j := driveJSON{Acct: a.backend.ID, Vendor: a.backend.Vendor, ID: d.ID, Name: d.Name, Kind: string(d.Kind), ReadOnly: d.ReadOnly}
+			j := driveJSON{Acct: a.backend.ID, Vendor: a.backend.Vendor, ID: d.ID, Name: d.Name, Kind: string(d.Kind), ReadOnly: d.ReadOnly || s.cfg.ReadOnly}
 			if q := d.Quota; q != nil {
 				if q.Used >= 0 {
 					j.Used = &q.Used

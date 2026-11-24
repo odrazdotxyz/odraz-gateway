@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bytes"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -182,5 +183,45 @@ func TestSignInGetsAFreshSessionID(t *testing.T) {
 	// no cookie at all: a new session
 	if f := s.signInSession(httptest.NewRecorder(), httptest.NewRequest("POST", "/auth/apptoken", nil), false); f == nil {
 		t.Error("no session created")
+	}
+}
+
+func TestReadOnlyRefusesEveryChange(t *testing.T) {
+	r := newRig(t, nil)
+	r.srv.cfg.ReadOnly = true
+	do := func(method, path, body string) (int, string) {
+		req, _ := http.NewRequest(method, r.gw.URL+path, strings.NewReader(body))
+		req.Header.Set("X-Requested-With", "odraz")
+		req.AddCookie(r.cook)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	const q = "?acct=mem&drive=d1&path=/ro.txt"
+	for _, c := range []struct{ method, path string }{
+		{"PUT", "/api/v1/file" + q},
+		{"POST", "/api/v1/mkdir" + q},
+		{"DELETE", "/api/v1/entry" + q},
+		{"POST", "/api/v1/move" + q + "&from=/a&to=/b"},
+		{"POST", "/api/v1/copy" + q + "&from=/a&to=/b"},
+		{"PUT", "/api/v1/photos/folder" + q + "&folder=/p"},
+		{"DELETE", "/api/v1/photos/folder?acct=mem"},
+		{"PUT", "/api/v1/editor"},
+		{"DELETE", "/api/v1/editor"},
+	} {
+		status, body := do(c.method, c.path, "x")
+		if status != 403 || !strings.Contains(body, `"permission"`) {
+			t.Errorf("%s %s: %d %s, want 403 permission", c.method, c.path, status, body)
+		}
+	}
+	if got := r.mem.get("/ro.txt"); got != "" {
+		t.Errorf("a read-only gateway stored a file: %q", got)
+	}
+	if status, body := do("GET", "/api/v1/drives", ""); status != 200 || strings.Contains(body, `"readOnly":false`) {
+		t.Errorf("drives: %d %s, want every drive read-only", status, body)
 	}
 }

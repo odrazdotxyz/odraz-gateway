@@ -265,7 +265,7 @@ func (s *Server) handleEditorSession(w http.ResponseWriter, r *http.Request, ses
 		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "this file is too large for the editor", "code": "error"})
 		return
 	}
-	readOnly := fs.Capabilities().ReadOnly
+	readOnly := fs.Capabilities().ReadOnly || s.cfg.ReadOnly
 	if d := s.driveOf(r.Context(), sess, in.Acct, in.Drive); d != nil && d.ReadOnly {
 		readOnly = true
 	}
@@ -441,6 +441,10 @@ func (s *Server) handleEditorCallback(w http.ResponseWriter, r *http.Request) {
 		es.set("error", "", "the editor could not save the document")
 		reply(0)
 	case editor.StatusReady, editor.StatusForceSaved:
+		if s.cfg.ReadOnly { // a read-only gateway never writes, whatever the editor says
+			reply(0)
+			return
+		}
 		if err := s.saveBack(r.Context(), es, p, cb); err != nil {
 			es.set("error", "", err.Error())
 			reply(1) // the editor keeps the document and tells the user
